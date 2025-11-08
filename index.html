@@ -7,60 +7,70 @@
     body { display:flex; flex-direction:column; align-items:center; background:#222; font-family:Arial; color:#fff; margin:0; padding:20px;}
     canvas { background:#111; border:3px solid #00f; border-radius:8px; margin:20px 0;}
     h1 { margin:10px 0;}
-    label, button, input { margin:5px; font-size:1.2em;}
+    label, button, input { margin:10px; font-size:1.2em;}
     button { padding:8px 16px; cursor:pointer; background:#00f; color:#fff; border:none; border-radius:5px;}
     button:hover { background:#0055ff;}
-    input[type=number] { width:60px; }
+    input { width:60px; }
+    #overlay { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); color:#fff; font-size:3em; display:flex; align-items:center; justify-content:center; flex-direction:column; z-index:10; display:none;}
 </style>
 </head>
 <body>
 <h1>Blue Snake AI</h1>
-
-<label>Map Size: <input type="number" id="mapSizeInput" value="15" min="5" max="100"></label>
-<label>Apple Count: <input type="number" id="appleCountInput" value="5" min="1" max="50"></label><br>
-
 <label><input type="checkbox" id="useAI"> Use AI</label>
 <label><input type="checkbox" id="showPath"> Show AI Path</label>
-<canvas id="snake"></canvas>
+<br>
+<label>Map Size: <input type="number" id="mapSizeInput" value="15" min="5" max="50"></label>
+<label>Apples: <input type="number" id="appleCountInput" value="5" min="1" max="20"></label>
+<canvas id="snake" width="480" height="480"></canvas>
 <h1>Score: <span id="score">0</span></h1>
 <button id="playAgain">Play Again</button>
+
+<div id="overlay">
+    <div id="overlayText"></div>
+    <button id="overlayButton">Play Again</button>
+</div>
 
 <script>
 const cvs = document.getElementById("snake");
 const ctx = cvs.getContext("2d");
-
 let box = 32;
-let gridSize = 15;
-let appleCount = 5;
+let gridSize = parseInt(document.getElementById("mapSizeInput").value);
+let appleCount = parseInt(document.getElementById("appleCountInput").value);
 
 let snake, foods, score, d, game;
 let useAI = document.getElementById("useAI");
 let showPath = document.getElementById("showPath");
+const overlay = document.getElementById("overlay");
+const overlayText = document.getElementById("overlayText");
+const overlayButton = document.getElementById("overlayButton");
 
 let dead = new Audio("/sound/gameover.mp3");
 let eat = new Audio("/sound/eated.mp3");
 
 // ---------------- Initialize Game ----------------
 function initGame() {
-    gridSize = Math.min(50, parseInt(document.getElementById("mapSizeInput").value));
+    overlay.style.display = "none";
+    gridSize = parseInt(document.getElementById("mapSizeInput").value);
     appleCount = parseInt(document.getElementById("appleCountInput").value);
     cvs.width = cvs.height = gridSize * box;
 
     snake = [{x: Math.floor(gridSize/2)*box, y: Math.floor(gridSize/2)*box}];
-    foods = [];
-    for(let i=0;i<appleCount;i++) foods.push(spawnFood());
     score = 0;
     d = "RIGHT";
+
+    foods = [];
+    for(let i=0;i<appleCount;i++) foods.push(spawnFood());
+
     if(game) clearInterval(game);
     game = setInterval(draw, 120);
 }
 
 // ---------------- Spawn Food ----------------
-function spawnFood(){
+function spawnFood() {
     let f;
     do {
         f = {x: Math.floor(Math.random()*gridSize)*box, y: Math.floor(Math.random()*gridSize)*box};
-    } while(snake.some(seg => seg.x===f.x && seg.y===f.y) || foods.some(food => food.x===f.x && food.y===f.y));
+    } while(snake.some(seg => seg.x===f.x && seg.y===f.y) || foods?.some(fd => fd.x===f.x && fd.y===f.y));
     return f;
 }
 
@@ -69,15 +79,14 @@ function collision(head, array){
     return array.some(seg => seg.x===head.x && seg.y===head.y);
 }
 
-// ---------------- BFS for shortest safe path ----------------
-function bfsPath(start, target, snakeBody){
+// ---------------- BFS Path ----------------
+function bfsPath(start, target, snakeBody) {
     const directions = [
         {name:"UP", dx:0, dy:-1},
         {name:"DOWN", dx:0, dy:1},
         {name:"LEFT", dx:-1, dy:0},
         {name:"RIGHT", dx:1, dy:0}
     ];
-
     const queue = [{x:start.x, y:start.y, path:[]}];
     const visited = new Set();
     visited.add(start.x+","+start.y);
@@ -99,25 +108,23 @@ function bfsPath(start, target, snakeBody){
     return [];
 }
 
-// ---------------- Flood-fill to measure safe space ----------------
+// ---------------- Flood Fill ----------------
 function floodFill(x, y, snakeBody){
     let visited = {};
     let queue = [{x,y}];
     let count = 0;
     function key(pos){ return pos.x+","+pos.y; }
-    const bodySet = new Set(snakeBody.map(seg=>seg.x+","+seg.y));
-
     while(queue.length){
-        const pos = queue.shift();
+        let pos = queue.shift();
         if(pos.x<0 || pos.x>=gridSize*box || pos.y<0 || pos.y>=gridSize*box) continue;
         if(visited[key(pos)]) continue;
-        if(bodySet.has(pos.x+","+pos.y)) continue;
+        if(snakeBody.some(seg=>seg.x===pos.x && seg.y===pos.y)) continue;
         visited[key(pos)] = true;
         count++;
-        queue.push({x: pos.x+box, y: pos.y});
-        queue.push({x: pos.x-box, y: pos.y});
-        queue.push({x: pos.x, y: pos.y+box});
-        queue.push({x: pos.x, y: pos.y-box});
+        queue.push({x:pos.x+box, y:pos.y});
+        queue.push({x:pos.x-box, y:pos.y});
+        queue.push({x:pos.x, y:pos.y+box});
+        queue.push({x:pos.x, y:pos.y-box});
     }
     return count;
 }
@@ -126,36 +133,30 @@ function floodFill(x, y, snakeBody){
 function getAIMove(){
     if(!useAI.checked) return d;
 
-    // Choose the apple with largest reachable space (least trap)
     let bestApple = foods[0];
     let bestScore = -Infinity;
     let bestPath = [];
-    for(let apple of foods){
-        const path = bfsPath(snake[0], apple, snake);
-        if(path.length===0) continue;
-        const futureSnake = [...snake];
-        const simulatedHead = {...snake[0]};
-        for(let step=0; step<Math.min(path.length, gridSize*gridSize); step++){
-            const move = path[step];
-            if(move==="UP") simulatedHead.y-=box;
-            if(move==="DOWN") simulatedHead.y+=box;
-            if(move==="LEFT") simulatedHead.x-=box;
-            if(move==="RIGHT") simulatedHead.x+=box;
-            futureSnake.unshift({...simulatedHead});
-            futureSnake.pop();
-        }
-        const freeSpace = floodFill(simulatedHead.x, simulatedHead.y, futureSnake);
-        if(freeSpace>bestScore){
-            bestScore=freeSpace;
-            bestApple=apple;
-            bestPath=path;
-        }
-    }
 
-    if(bestPath.length===0){
-        // fallback: safe move
-        const dirs = ["UP","DOWN","LEFT","RIGHT"].filter(isSafeMove);
-        return dirs.length>0?dirs[0]:d;
+    for(let f of foods){
+        const path = bfsPath(snake[0], f, snake);
+        if(path.length===0) continue;
+        // simulate getting to apple and see how much free space remains
+        let simSnake = snake.map(seg=>({...seg}));
+        let tempHead = {...simSnake[0]};
+        path.forEach(move=>{
+            if(move==="UP") tempHead.y-=box;
+            if(move==="DOWN") tempHead.y+=box;
+            if(move==="LEFT") tempHead.x-=box;
+            if(move==="RIGHT") tempHead.x+=box;
+            simSnake.unshift({...tempHead});
+            simSnake.pop();
+        });
+        let freeSpace = floodFill(tempHead.x, tempHead.y, simSnake);
+        if(freeSpace > bestScore){
+            bestScore = freeSpace;
+            bestApple = f;
+            bestPath = path;
+        }
     }
 
     if(showPath.checked){
@@ -170,85 +171,72 @@ function getAIMove(){
         });
     }
 
-    return bestPath[0];
+    return bestPath[0] || d;
 }
-
-// ---------------- Check safe move ----------------
-function isSafeMove(direction){
-    let newHead = {...snake[0]};
-    if(direction==="UP") newHead.y-=box;
-    if(direction==="DOWN") newHead.y+=box;
-    if(direction==="LEFT") newHead.x-=box;
-    if(direction==="RIGHT") newHead.x+=box;
-    if(newHead.x<0 || newHead.x>=gridSize*box || newHead.y<0 || newHead.y>=gridSize*box) return false;
-    if(collision(newHead, snake)) return false;
-    return true;
-}
-
-// ---------------- Manual controls ----------------
-document.addEventListener("keydown", function(event){
-    const key = event.key;
-    if(!useAI.checked){
-        if(key==="ArrowUp" && d!=="DOWN") d="UP";
-        if(key==="ArrowDown" && d!=="UP") d="DOWN";
-        if(key==="ArrowLeft" && d!=="RIGHT") d="LEFT";
-        if(key==="ArrowRight" && d!=="LEFT") d="RIGHT";
-    }
-});
 
 // ---------------- Draw ----------------
 function draw(){
     ctx.fillStyle="#111";
     ctx.fillRect(0,0,cvs.width,cvs.height);
 
-    // Draw foods
-    foods.forEach(f=>{
-        ctx.fillStyle="red";
-        ctx.fillRect(f.x,f.y,box,box);
-    });
-
-    // Draw snake
     snake.forEach((seg,i)=>{
-        ctx.fillStyle = i===0?"blue":"lightblue";
+        ctx.fillStyle = i===0 ? "blue" : "lightblue";
         ctx.fillRect(seg.x,seg.y,box,box);
         ctx.strokeStyle="darkblue";
         ctx.strokeRect(seg.x,seg.y,box,box);
     });
 
-    if(useAI.checked) d=getAIMove();
+    foods.forEach(f=>{ ctx.fillStyle="red"; ctx.fillRect(f.x,f.y,box,box); });
 
-    let snakeX=snake[0].x, snakeY=snake[0].y;
+    d = getAIMove();
+
+    let snakeX = snake[0].x;
+    let snakeY = snake[0].y;
     if(d==="UP") snakeY-=box;
     if(d==="DOWN") snakeY+=box;
     if(d==="LEFT") snakeX-=box;
     if(d==="RIGHT") snakeX+=box;
 
+    let newHead = {x:snakeX, y:snakeY};
+
     // Eat food
-    const eatenIndex = foods.findIndex(f=>f.x===snakeX && f.y===snakeY);
-    if(eatenIndex!==-1){
-        score++;
-        eat.play();
-        foods.splice(eatenIndex,1);
-        foods.push(spawnFood());
-    } else {
-        snake.pop();
+    for(let i=0;i<foods.length;i++){
+        if(newHead.x===foods[i].x && newHead.y===foods[i].y){
+            score++;
+            eat.play();
+            foods[i] = spawnFood();
+            snake.push({...snake[snake.length-1]}); // grow
+        }
     }
 
-    let newHead={x:snakeX, y:snakeY};
-    if(snakeX<0||snakeX>=gridSize*box||snakeY<0||snakeY>=gridSize*box||collision(newHead,snake)){
+    if(snakeX<0 || snakeX>=gridSize*box || snakeY<0 || snakeY>=gridSize*box || collision(newHead, snake)){
         clearInterval(game);
         dead.play();
+        overlayText.textContent = "YOU DIED";
+        overlay.style.display = "flex";
         return;
     }
 
     snake.unshift(newHead);
-    document.getElementById("score").textContent=score;
+
+    // Remove tail if no food eaten
+    if(!foods.some(f=>f.x===newHead.x && f.y===newHead.y)) snake.pop();
+
+    document.getElementById("score").textContent = score;
+
+    // Win check: snake fills almost all map
+    if(snake.length >= gridSize*gridSize - appleCount){
+        clearInterval(game);
+        overlayText.textContent = "YOU WON!";
+        overlay.style.display = "flex";
+    }
 }
 
 // ---------------- Play Again ----------------
 document.getElementById("playAgain").addEventListener("click", initGame);
+overlayButton.addEventListener("click", initGame);
 
-// Start game
+// ---------------- Start Game ----------------
 initGame();
 </script>
 </body>
