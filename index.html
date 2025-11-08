@@ -23,9 +23,20 @@
     h1 {
         margin: 10px 0;
     }
-    label {
-        margin-bottom: 20px;
+    label, button {
+        margin: 10px;
         font-size: 1.2em;
+    }
+    button {
+        padding: 8px 16px;
+        cursor: pointer;
+        background: #00f;
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+    }
+    button:hover {
+        background: #0055ff;
     }
 </style>
 </head>
@@ -34,6 +45,7 @@
 <label><input type="checkbox" id="useAI"> Use AI</label>
 <canvas id="snake" width="608" height="608"></canvas>
 <h1>Score: <span id="score">0</span></h1>
+<button id="playAgain">Play Again</button>
 
 <script>
 // ---------------- Setup ----------------
@@ -41,12 +53,7 @@ const cvs = document.getElementById("snake");
 const ctx = cvs.getContext("2d");
 const box = 32;
 
-let snake = [{ x: 9*box, y: 10*box }];
-let food = { x: Math.floor(Math.random()*17+1)*box, y: Math.floor(Math.random()*17+1)*box };
-let score = 0;
-
-let d = "RIGHT";
-let aiDirection = "RIGHT";
+let snake, food, score, d, aiDirection, game;
 const useAI = document.getElementById("useAI");
 
 // ---------------- Sounds ----------------
@@ -56,6 +63,25 @@ let up = new Audio("audio/up.mp3");
 let rightS = new Audio("audio/right.mp3");
 let leftS = new Audio("audio/left.mp3");
 let downS = new Audio("audio/down.mp3");
+
+// ---------------- Initialize ----------------
+function initGame(){
+    snake = [{ x: 9*box, y: 10*box }];
+    food = spawnFood();
+    score = 0;
+    d = "RIGHT";
+    aiDirection = "RIGHT";
+    if(game) clearInterval(game);
+    game = setInterval(draw, 150);
+}
+
+function spawnFood(){
+    let f;
+    do {
+        f = { x: Math.floor(Math.random()*17+1)*box, y: Math.floor(Math.random()*17+1)*box };
+    } while(snake.some(seg => seg.x===f.x && seg.y===f.y));
+    return f;
+}
 
 // ---------------- Controls ----------------
 document.addEventListener("keydown", function(event){
@@ -111,60 +137,54 @@ function distanceToFood(direction){
 
 // ---------------- Draw ----------------
 function draw(){
-    // clear canvas
     ctx.fillStyle = "#111";
     ctx.fillRect(0,0,cvs.width,cvs.height);
-    
-    // Draw snake
+
     for(let i=0;i<snake.length;i++){
         ctx.fillStyle = i===0?"blue":"lightblue";
         ctx.fillRect(snake[i].x,snake[i].y,box,box);
         ctx.strokeStyle="darkblue";
         ctx.strokeRect(snake[i].x,snake[i].y,box,box);
     }
-    
-    // Draw food
+
     ctx.fillStyle = "red";
     ctx.fillRect(food.x,food.y,box,box);
-    
-    // AI
+
     aiDirection = getAIMove();
     d = aiDirection;
-    
+
     let snakeX = snake[0].x;
     let snakeY = snake[0].y;
-    
+
     if(d==="LEFT") snakeX-=box;
     if(d==="RIGHT") snakeX+=box;
     if(d==="UP") snakeY-=box;
     if(d==="DOWN") snakeY+=box;
-    
-    // eat food
+
     if(snakeX===food.x && snakeY===food.y){
         score++;
         eat.play();
-        // spawn new food avoiding snake body
-        do {
-            food = { x: Math.floor(Math.random()*17+1)*box, y: Math.floor(Math.random()*17+1)*box };
-        } while (snake.some(seg => seg.x===food.x && seg.y===food.y));
+        food = spawnFood();
     } else {
         snake.pop();
     }
-    
-    // game over
+
     let newHead = {x:snakeX, y:snakeY};
     if(snakeX<0 || snakeX>=18*box || snakeY<0 || snakeY>=18*box || collision(newHead,snake)){
         clearInterval(game);
         dead.play();
+        return;
     }
-    
+
     snake.unshift(newHead);
-    
     document.getElementById("score").textContent = score;
 }
 
-// ---------------- Run ----------------
-let game = setInterval(draw, 150); // slower speed
+// ---------------- Play Again ----------------
+document.getElementById("playAgain").addEventListener("click", initGame);
+
+// ---------------- Start Game ----------------
+initGame();
 </script>
 </body>
 </html>
