@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Blue Snake AI</title>
+<title>Blue Snake AI - Lookahead Visualization</title>
 <style>
     body { display:flex; flex-direction:column; align-items:center; background:#222; font-family:Arial; color:#fff; margin:0; padding:20px;}
     canvas { background:#111; border:3px solid #00f; border-radius:8px; margin:20px 0;}
@@ -15,6 +15,7 @@
 <body>
 <h1>Blue Snake AI</h1>
 <label><input type="checkbox" id="useAI"> Use AI</label>
+<label><input type="checkbox" id="showPath"> Show AI Path</label>
 <canvas id="snake" width="608" height="608"></canvas>
 <h1>Score: <span id="score">0</span></h1>
 <button id="playAgain">Play Again</button>
@@ -27,14 +28,11 @@ const box = 32;
 
 let snake, food, score, d, aiDirection, game;
 const useAI = document.getElementById("useAI");
+const showPath = document.getElementById("showPath");
 
 // ---------------- Sounds ----------------
-let dead = new Audio("audio/dead.mp3");
-let eat = new Audio("audio/eat.mp3");
-let up = new Audio("audio/up.mp3");
-let rightS = new Audio("audio/right.mp3");
-let leftS = new Audio("audio/left.mp3");
-let downS = new Audio("audio/down.mp3");
+let dead = new Audio("/sound/gameover.mp3");
+let eat = new Audio("/sound/eated.mp3");
 
 // ---------------- Initialize ----------------
 function initGame(){
@@ -44,7 +42,7 @@ function initGame(){
     d = "RIGHT";
     aiDirection = "RIGHT";
     if(game) clearInterval(game);
-    game = setInterval(draw, 150);
+    game = setInterval(draw, 180); // slower for nicer visuals
 }
 
 function spawnFood(){
@@ -67,55 +65,89 @@ function getAIMove(){
     const directions = ["UP","DOWN","LEFT","RIGHT"];
     let safeMoves = directions.filter(dir => isSafeMove(dir));
 
-    // If no safe moves, just keep current direction
     if(safeMoves.length===0) return d;
 
-    // Evaluate each move by distance to food + safety area after move
-    safeMoves.sort((a,b)=>{
-        return evaluateMove(a)-evaluateMove(b);
-    });
+    let bestScore = -Infinity;
+    let bestMove = safeMoves[0];
+    let bestPath = [];
 
-    return safeMoves[0];
+    for(let dir of safeMoves){
+        const {score: s, path} = simulatePath(snake, dir, 5);
+        if(s > bestScore){
+            bestScore = s;
+            bestMove = dir;
+            bestPath = path;
+        }
+    }
+
+    // Draw path if toggle on
+    if(showPath.checked){
+        ctx.fillStyle = "rgba(0,200,255,0.5)";
+        bestPath.forEach(pos=>{
+            ctx.fillRect(pos.x+8,pos.y+8,box-16,box-16);
+        });
+    }
+
+    return bestMove;
 }
 
-// Checks if next move would hit wall or snake
-function isSafeMove(direction){
-    let head = snake[0];
+function isSafeMove(direction, testSnake=snake){
+    let head = testSnake[0];
     let nx=head.x, ny=head.y;
     if(direction==="LEFT") nx-=box;
     if(direction==="RIGHT") nx+=box;
     if(direction==="UP") ny-=box;
     if(direction==="DOWN") ny+=box;
     if(nx<0 || nx>=18*box || ny<0 || ny>=18*box) return false;
-    if(snake.some(seg => seg.x===nx && seg.y===ny)) return false;
+    if(testSnake.some(seg => seg.x===nx && seg.y===ny)) return false;
     return true;
 }
 
-// Evaluate move by distance to food and available space after move
-function evaluateMove(direction){
-    let head = snake[0];
-    let nx=head.x, ny=head.y;
-    if(direction==="LEFT") nx-=box;
-    if(direction==="RIGHT") nx+=box;
-    if(direction==="UP") ny-=box;
-    if(direction==="DOWN") ny+=box;
+// Recursive simulation returning score and path
+function simulatePath(testSnake, direction, depth){
+    let head = {...testSnake[0]};
+    let newSnake = testSnake.map(seg => ({...seg}));
+    let path = [];
 
-    // Distance to food
-    let dist = Math.abs(nx-food.x)+Math.abs(ny-food.y);
+    if(direction==="LEFT") head.x-=box;
+    if(direction==="RIGHT") head.x+=box;
+    if(direction==="UP") head.y-=box;
+    if(direction==="DOWN") head.y+=box;
 
-    // Flood-fill to estimate available space
-    let available = floodFill(nx, ny, snake.map(s=>({x:s.x, y:s.y})));
-    return dist - available*0.1; // prioritize safe space slightly
+    if(head.x<0 || head.x>=18*box || head.y<0 || head.y>=18*box || collision(head,newSnake)) return {score:-1000, path:[]};
+
+    newSnake.unshift(head);
+    if(head.x!==food.x || head.y!==food.y) newSnake.pop();
+
+    path.push(head);
+
+    if(depth===0){
+        let dist = Math.abs(head.x-food.x)+Math.abs(head.y-food.y);
+        let freeSpace = floodFill(head.x, head.y, newSnake);
+        return {score: freeSpace - dist, path};
+    }
+
+    const dirs = ["UP","DOWN","LEFT","RIGHT"].filter(dir=>isSafeMove(dir,newSnake));
+    if(dirs.length===0) return {score:-1000, path};
+
+    let best = -Infinity;
+    let bestSubPath = [];
+    for(let dir of dirs){
+        let {score: s, path: p} = simulatePath(newSnake, dir, depth-1);
+        if(s>best){
+            best = s;
+            bestSubPath = p;
+        }
+    }
+    return {score: best, path: path.concat(bestSubPath)};
 }
 
-// Simple flood-fill to count free squares from given position
+// Flood-fill to estimate available space
 function floodFill(x, y, occupied){
     let visited = {};
     let queue = [{x,y}];
     let count = 0;
-
     function key(pos){ return pos.x+","+pos.y; }
-
     while(queue.length){
         let pos = queue.shift();
         if(pos.x<0 || pos.x>=18*box || pos.y<0 || pos.y>=18*box) continue;
