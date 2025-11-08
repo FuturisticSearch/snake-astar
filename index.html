@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Blue Snake AI - Smarter</title>
+<title>Blue Snake AI - Smart AI</title>
 <style>
     body { display:flex; flex-direction:column; align-items:center; background:#222; font-family:Arial; color:#fff; margin:0; padding:20px;}
     canvas { background:#111; border:3px solid #00f; border-radius:8px; margin:20px 0;}
@@ -15,7 +15,7 @@
 <body>
 <h1>Blue Snake AI</h1>
 <label><input type="checkbox" id="useAI"> Use AI</label>
-<label><input type="checkbox" id="showPath"> Show AI Thinking</label>
+<label><input type="checkbox" id="showPath"> Show AI Path</label>
 <canvas id="snake" width="608" height="608"></canvas>
 <h1>Score: <span id="score">0</span></h1>
 <button id="playAgain">Play Again</button>
@@ -24,170 +24,132 @@
 const cvs = document.getElementById("snake");
 const ctx = cvs.getContext("2d");
 const box = 32;
+const gridSize = 19;
 
-let snake, food, score, d, aiDirection, game;
-const useAI = document.getElementById("useAI");
-const showPath = document.getElementById("showPath");
+let snake, food, score, d, game;
+let useAI = document.getElementById("useAI");
+let showPath = document.getElementById("showPath");
 
 let dead = new Audio("/sound/gameover.mp3");
 let eat = new Audio("/sound/eated.mp3");
 
-// Initialize the game
-function initGame(){
-    snake = [{ x: 9*box, y: 9*box }];
+// ---------------- Initialize Game ----------------
+function initGame() {
+    snake = [{x: 9*box, y: 9*box}];
     food = spawnFood();
     score = 0;
     d = "RIGHT";
-    aiDirection = "RIGHT";
     if(game) clearInterval(game);
-    game = setInterval(draw, 150);
+    game = setInterval(draw, 120);
 }
 
-function spawnFood(){
+// ---------------- Spawn Food ----------------
+function spawnFood() {
     let f;
     do {
-        f = { x: Math.floor(Math.random()*19)*box, y: Math.floor(Math.random()*19)*box };
+        f = {x: Math.floor(Math.random()*gridSize)*box, y: Math.floor(Math.random()*gridSize)*box};
     } while(snake.some(seg => seg.x===f.x && seg.y===f.y));
     return f;
 }
 
-// Check collision with snake body
+// ---------------- Collision ----------------
 function collision(head, array){
     return array.some(seg => seg.x===head.x && seg.y===head.y);
 }
 
-// AI decision
-function getAIMove(){
-    if(!useAI.checked) return d;
+// ---------------- AI: BFS Shortest Safe Path ----------------
+function bfsPath(start, target, snakeBody) {
+    const directions = [
+        {name:"UP", dx:0, dy:-1},
+        {name:"DOWN", dx:0, dy:1},
+        {name:"LEFT", dx:-1, dy:0},
+        {name:"RIGHT", dx:1, dy:0}
+    ];
 
-    const directions = ["UP","DOWN","LEFT","RIGHT"];
-    let safeMoves = directions.filter(dir => isSafeMove(dir));
+    const queue = [{x:start.x, y:start.y, path:[]}];
+    const visited = new Set();
+    visited.add(start.x+","+start.y);
+    const bodySet = new Set(snakeBody.map(seg=>seg.x+","+seg.y));
 
-    if(safeMoves.length===0) return d;
-
-    let bestScore = -Infinity;
-    let bestMove = safeMoves[0];
-    let bestPath = [];
-
-    for(let dir of safeMoves){
-        const {score: s, path} = simulatePath(snake, dir, 5);
-        if(s > bestScore){
-            bestScore = s;
-            bestMove = dir;
-            bestPath = path;
+    while(queue.length>0) {
+        const node = queue.shift();
+        if(node.x===target.x && node.y===target.y) return node.path;
+        for(let dir of directions){
+            let nx = node.x + dir.dx*box;
+            let ny = node.y + dir.dy*box;
+            if(nx<0 || nx>=gridSize*box || ny<0 || ny>=gridSize*box) continue;
+            if(bodySet.has(nx+","+ny) && !(nx===target.x && ny===target.y)) continue;
+            if(visited.has(nx+","+ny)) continue;
+            visited.add(nx+","+ny);
+            queue.push({x:nx,y:ny,path:node.path.concat(dir.name)});
         }
     }
+    return []; // no path found
+}
 
-    // Show AI thinking if toggled
+// ---------------- Check if move traps snake ----------------
+function isSafeAfterMove(direction) {
+    let newHead = {...snake[0]};
+    if(direction==="UP") newHead.y-=box;
+    if(direction==="DOWN") newHead.y+=box;
+    if(direction==="LEFT") newHead.x-=box;
+    if(direction==="RIGHT") newHead.x+=box;
+    if(newHead.x<0 || newHead.x>=gridSize*box || newHead.y<0 || newHead.y>=gridSize*box) return false;
+    return !collision(newHead, snake);
+}
+
+// ---------------- Determine AI Move ----------------
+function getAIMove() {
+    if(!useAI.checked) return d;
+    const path = bfsPath(snake[0], food, snake);
+    if(path.length===0){
+        // fallback: just safe move
+        const dirs = ["UP","DOWN","LEFT","RIGHT"].filter(isSafeAfterMove);
+        return dirs.length>0 ? dirs[0] : d;
+    }
     if(showPath.checked){
-        ctx.fillStyle = "rgba(0,200,255,0.5)";
-        bestPath.forEach(pos=>{
+        // Draw AI path overlay
+        let pos = {...snake[0]};
+        ctx.fillStyle="rgba(0,200,255,0.5)";
+        path.forEach(move=>{
+            if(move==="UP") pos.y-=box;
+            if(move==="DOWN") pos.y+=box;
+            if(move==="LEFT") pos.x-=box;
+            if(move==="RIGHT") pos.x+=box;
             ctx.fillRect(pos.x+8,pos.y+8,box-16,box-16);
         });
     }
-
-    return bestMove;
+    return path[0];
 }
 
-// Check if a move is safe
-function isSafeMove(direction, testSnake=snake){
-    let head = testSnake[0];
-    let nx=head.x, ny=head.y;
-    if(direction==="LEFT") nx-=box;
-    if(direction==="RIGHT") nx+=box;
-    if(direction==="UP") ny-=box;
-    if(direction==="DOWN") ny+=box;
-    if(nx<0 || nx>=19*box || ny<0 || ny>=19*box) return false;
-    if(testSnake.some(seg => seg.x===nx && seg.y===ny)) return false;
-    return true;
-}
-
-// Simulate a path recursively
-function simulatePath(testSnake, direction, depth){
-    let head = {...testSnake[0]};
-    let newSnake = testSnake.map(seg => ({...seg}));
-    let path = [];
-
-    if(direction==="LEFT") head.x-=box;
-    if(direction==="RIGHT") head.x+=box;
-    if(direction==="UP") head.y-=box;
-    if(direction==="DOWN") head.y+=box;
-
-    if(head.x<0 || head.x>=19*box || head.y<0 || head.y>=19*box || collision(head,newSnake)) return {score:-1000, path:[]};
-
-    newSnake.unshift(head);
-    if(head.x!==food.x || head.y!==food.y) newSnake.pop();
-
-    path.push(head);
-
-    if(depth===0){
-        let dist = Math.abs(head.x-food.x)+Math.abs(head.y-food.y);
-        let freeSpace = floodFill(head.x, head.y, newSnake);
-        return {score: 1000 - dist + freeSpace*2, path}; // prioritize food but consider free space
-    }
-
-    const dirs = ["UP","DOWN","LEFT","RIGHT"].filter(dir=>isSafeMove(dir,newSnake));
-    if(dirs.length===0) return {score:-1000, path};
-
-    let best = -Infinity;
-    let bestSubPath = [];
-    for(let dir of dirs){
-        let {score: s, path: p} = simulatePath(newSnake, dir, depth-1);
-        if(s>best){
-            best = s;
-            bestSubPath = p;
-        }
-    }
-    return {score: best, path: path.concat(bestSubPath)};
-}
-
-// Flood-fill to estimate available space
-function floodFill(x, y, occupied){
-    let visited = {};
-    let queue = [{x,y}];
-    let count = 0;
-    function key(pos){ return pos.x+","+pos.y; }
-    while(queue.length){
-        let pos = queue.shift();
-        if(pos.x<0 || pos.x>=19*box || pos.y<0 || pos.y>=19*box) continue;
-        if(visited[key(pos)]) continue;
-        if(occupied.some(seg => seg.x===pos.x && seg.y===pos.y)) continue;
-        visited[key(pos)] = true;
-        count++;
-        queue.push({x:pos.x+box,y:pos.y});
-        queue.push({x:pos.x-box,y:pos.y});
-        queue.push({x:pos.x,y:pos.y+box});
-        queue.push({x:pos.x,y:pos.y-box});
-    }
-    return count;
-}
-
-// Draw the game
-function draw(){
-    ctx.fillStyle = "#111";
+// ---------------- Draw ----------------
+function draw() {
+    ctx.fillStyle="#111";
     ctx.fillRect(0,0,cvs.width,cvs.height);
 
-    for(let i=0;i<snake.length;i++){
-        ctx.fillStyle = i===0?"blue":"lightblue";
-        ctx.fillRect(snake[i].x,snake[i].y,box,box);
+    // Draw snake
+    snake.forEach((seg,i)=>{
+        ctx.fillStyle = i===0 ? "blue" : "lightblue";
+        ctx.fillRect(seg.x,seg.y,box,box);
         ctx.strokeStyle="darkblue";
-        ctx.strokeRect(snake[i].x,snake[i].y,box,box);
-    }
+        ctx.strokeRect(seg.x,seg.y,box,box);
+    });
 
-    ctx.fillStyle = "red";
+    // Draw food
+    ctx.fillStyle="red";
     ctx.fillRect(food.x,food.y,box,box);
 
-    aiDirection = getAIMove();
-    d = aiDirection;
+    // Determine next move
+    d = getAIMove();
 
     let snakeX = snake[0].x;
     let snakeY = snake[0].y;
-
-    if(d==="LEFT") snakeX-=box;
-    if(d==="RIGHT") snakeX+=box;
     if(d==="UP") snakeY-=box;
     if(d==="DOWN") snakeY+=box;
+    if(d==="LEFT") snakeX-=box;
+    if(d==="RIGHT") snakeX+=box;
 
+    // Eat food
     if(snakeX===food.x && snakeY===food.y){
         score++;
         eat.play();
@@ -197,7 +159,7 @@ function draw(){
     }
 
     let newHead = {x:snakeX, y:snakeY};
-    if(snakeX<0 || snakeX>=19*box || snakeY<0 || snakeY>=19*box || collision(newHead,snake)){
+    if(snakeX<0 || snakeX>=gridSize*box || snakeY<0 || snakeY>=gridSize*box || collision(newHead,snake)){
         clearInterval(game);
         dead.play();
         return;
@@ -207,10 +169,10 @@ function draw(){
     document.getElementById("score").textContent = score;
 }
 
-// Play again button
+// ---------------- Play Again ----------------
 document.getElementById("playAgain").addEventListener("click", initGame);
 
-// Start the game
+// Start game
 initGame();
 </script>
 </body>
