@@ -1,88 +1,101 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="en">
 
 <head>
-  <meta charset="utf-8">
-  <title>Snake ASTAR Auto</title>
+  <meta charset="UTF-8">
+  <title>Google Snake AI</title>
   <style>
-    /* Global Styles */
+    /* Reset */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
     body {
-      background: #1e1e1e;
-      color: #f0f0f0;
-      font-family: 'Courier New', Courier, monospace;
+      font-family: 'Roboto', sans-serif;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: flex-start;
-      min-height: 100vh;
-      margin: 0;
-      padding: 20px;
+      background-color: #fafafa;
+      height: 100vh;
+      padding-top: 50px;
+      color: #202124;
     }
 
     h2 {
-      color: #00ff00;
-      margin-bottom: 10px;
+      font-weight: 400;
+      font-size: 24px;
+      margin-bottom: 20px;
     }
 
-    canvas {
-      background-color: #111;
-      border: 3px solid #00ff00;
-      border-radius: 8px;
-      display: block;
-      margin: 20px 0;
+    #gameCanvas {
+      background-color: #ffffff;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
     }
 
-    h1 {
-      margin: 10px 0;
-      font-size: 1.5em;
+    .status-bar {
+      margin-top: 15px;
+      display: flex;
+      gap: 20px;
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    .buttons {
+      margin-top: 20px;
+      display: flex;
+      gap: 10px;
     }
 
     button {
-      background-color: #00ff00;
-      color: #111;
+      font-size: 14px;
+      padding: 8px 16px;
+      border-radius: 6px;
       border: none;
-      padding: 10px 20px;
-      margin: 5px;
-      border-radius: 5px;
-      font-weight: bold;
+      background-color: #f8f9fa;
+      color: #202124;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
       cursor: pointer;
-      transition: 0.2s;
+      transition: all 0.2s ease;
     }
 
     button:hover {
-      background-color: #00cc00;
+      background-color: #e0e0e0;
     }
 
-    p {
+    button:active {
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .mode {
       margin-top: 10px;
-      font-size: 1.1em;
-    }
-
-    /* Snake and food styling (via JS canvas) */
-    .snake {
-      fill: #00ff00;
-      stroke: #008800;
-      stroke-width: 2;
-    }
-
-    .food {
-      fill: #ff3333;
-      stroke: #880000;
-      stroke-width: 2;
+      font-size: 14px;
+      color: #d93025; /* red for automatic mode */
     }
   </style>
 </head>
 
 <body>
-  <h2>arsan.dev Snake AI with A* Algorithm</h2>
-  <canvas id="gameCanvas"></canvas>
-  <h1>Score: <span id="score">0</span> | Time: <span id="time">0</span>s</h1>
-  <p><b>Mode: <font color="#ff5555">Automatic (BOT)</font></b></p>
+  <h2>Google Snake AI Clone</h2>
 
-  <div>
-    <button type="button" onclick="location.reload()">Refresh</button>
-    <button type="button" id="play">Play</button>
-    <button type="button" id="pause" hidden>Pause</button>
+  <canvas id="gameCanvas" width="400" height="400"></canvas>
+
+  <div class="status-bar">
+    <div>Score: <span id="score">0</span></div>
+    <div>Time: <span id="time">0</span>s</div>
+  </div>
+
+  <div class="mode">
+    <b>Mode: Automatic (BOT)</b>
+  </div>
+
+  <div class="buttons">
+    <button onclick="location.reload()">Refresh</button>
+    <button id="play">Play</button>
+    <button id="pause" hidden>Pause</button>
   </div>
 
   <script src="snake.js" charset="utf-8"></script>
@@ -92,17 +105,12 @@
       size: 400,
       blockSize: 15,
       fps: 25,
-      utils: {
-        showGrid: false,
-        distance: false,
-        distanceCount: false,
-        distancePerpendicular: false
-      },
+      utils: { showGrid: false },
       aStar: true,
-      snakeColor: '#00ff00',
-      snakeStroke: '#008800',
-      foodColor: '#ff3333',
-      foodStroke: '#880000'
+      snakeColor: '#4caf50', // Google snake green
+      snakeStroke: '#388e3c',
+      foodColor: '#f44336', // red food
+      foodStroke: '#c62828'
     });
 
     const playBtn = document.querySelector("#play");
