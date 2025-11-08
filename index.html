@@ -2,63 +2,66 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Blue Snake AI - Future Lookahead</title>
+<title>Blue Snake AI - Limited Lookahead</title>
 <style>
-body { display:flex; flex-direction:column; align-items:center; background:#222; font-family:Arial; color:#fff; margin:0; padding:20px;}
-canvas { background:#111; border:3px solid #00f; border-radius:8px; margin:20px 0;}
-h1 { margin:10px 0;}
-label, button, input { margin:10px; font-size:1.2em;}
-button { padding:8px 16px; cursor:pointer; background:#00f; color:#fff; border:none; border-radius:5px;}
-button:hover { background:#0055ff;}
-input[type=number]{width:60px; padding:2px;}
+    body { display:flex; flex-direction:column; align-items:center; background:#222; font-family:Arial; color:#fff; margin:0; padding:20px;}
+    canvas { background:#111; border:3px solid #00f; border-radius:8px; margin:20px 0;}
+    h1 { margin:10px 0;}
+    label, button, input { margin:10px; font-size:1.2em;}
+    button { padding:8px 16px; cursor:pointer; background:#00f; color:#fff; border:none; border-radius:5px;}
+    button:hover { background:#0055ff;}
+    input { width:50px; text-align:center;}
 </style>
 </head>
 <body>
-<h1>Blue Snake AI - Infinite Lookahead</h1>
+<h1>Blue Snake AI</h1>
+
+<label>Map Size: <input type="number" id="mapSizeInput" value="15" min="5" max="100"></label>
+<label>Food Amount: <input type="number" id="foodAmountInput" value="5" min="1" max="50"></label>
 <label><input type="checkbox" id="useAI"> Use AI</label>
 <label><input type="checkbox" id="showPath"> Show AI Path</label>
-<label>Map Size: <input type="number" id="mapSize" value="20" min="10" max="100"></label>
-<label>Food Count: <input type="number" id="foodCount" value="5" min="1" max="50"></label>
-<canvas id="snake" width="640" height="640"></canvas>
+
+<canvas id="snake" width="608" height="608"></canvas>
 <h1>Score: <span id="score">0</span></h1>
 <button id="playAgain">Play Again</button>
 
 <script>
 const cvs = document.getElementById("snake");
 const ctx = cvs.getContext("2d");
-let box = 32;
-let gridSize = parseInt(document.getElementById("mapSize").value);
-let foodCount = parseInt(document.getElementById("foodCount").value);
+const box = 32;
 
-let snake, foods, score, d, game;
-const useAI = document.getElementById("useAI");
-const showPath = document.getElementById("showPath");
+let gridSize = 15;
+let foodCount = 5;
+let snake, foodList, score, d, game;
+let useAI = document.getElementById("useAI");
+let showPath = document.getElementById("showPath");
 
-const dead = new Audio("/sound/gameover.mp3");
-const eat = new Audio("/sound/eated.mp3");
+let dead = new Audio("/sound/gameover.mp3");
+let eat = new Audio("/sound/eated.mp3");
 
 // ---------------- Initialize Game ----------------
 function initGame() {
-    box = Math.floor(600/gridSize);
-    cvs.width = cvs.height = box*gridSize;
+    gridSize = Math.min(Math.max(parseInt(document.getElementById("mapSizeInput").value),5),100);
+    foodCount = Math.min(Math.max(parseInt(document.getElementById("foodAmountInput").value),1),50);
 
     snake = [{x: Math.floor(gridSize/2)*box, y: Math.floor(gridSize/2)*box}];
-    foods = spawnFoods(foodCount);
     score = 0;
     d = "RIGHT";
+    spawnFoodList();
+
     if(game) clearInterval(game);
-    game = setInterval(draw, 100);
+    game = setInterval(draw, 120);
 }
 
 // ---------------- Spawn Foods ----------------
-function spawnFoods(count){
-    let arr=[];
-    while(arr.length<count){
+function spawnFoodList() {
+    foodList = [];
+    while(foodList.length < foodCount){
         let f = {x: Math.floor(Math.random()*gridSize)*box, y: Math.floor(Math.random()*gridSize)*box};
-        if(!snake.some(seg=>seg.x===f.x && seg.y===f.y) && !arr.some(fd=>fd.x===f.x && fd.y===f.y))
-            arr.push(f);
+        if(!snake.some(seg=>seg.x===f.x && seg.y===f.y) && !foodList.some(ff=>ff.x===f.x && ff.y===f.y)){
+            foodList.push(f);
+        }
     }
-    return arr;
 }
 
 // ---------------- Collision ----------------
@@ -66,60 +69,85 @@ function collision(head, array){
     return array.some(seg => seg.x===head.x && seg.y===head.y);
 }
 
-// ---------------- AI Recursive Lookahead ----------------
-function simulateSnake(testSnake, testFoods, depth){
-    if(depth===0 || testFoods.length===0) return {score:0, path:[]};
+// ---------------- BFS Path ----------------
+function bfsPath(start, target, snakeBody, depthLimit){
+    const directions = [
+        {name:"UP", dx:0, dy:-1},
+        {name:"DOWN", dx:0, dy:1},
+        {name:"LEFT", dx:-1, dy:0},
+        {name:"RIGHT", dx:1, dy:0}
+    ];
 
-    const moves = ["UP","DOWN","LEFT","RIGHT"];
-    let best = {score:-Infinity, path:[]};
+    const queue = [{x:start.x, y:start.y, path:[], depth:0}];
+    const visited = new Set();
+    visited.add(start.x+","+start.y);
+    const bodySet = new Set(snakeBody.map(seg=>seg.x+","+seg.y));
 
-    for(let move of moves){
-        let head = {...testSnake[0]};
-        if(move==="UP") head.y-=box;
-        if(move==="DOWN") head.y+=box;
-        if(move==="LEFT") head.x-=box;
-        if(move==="RIGHT") head.x+=box;
+    while(queue.length>0){
+        const node = queue.shift();
+        if(node.x===target.x && node.y===target.y) return node.path;
+        if(node.depth >= depthLimit) continue;
 
-        if(head.x<0 || head.x>=gridSize*box || head.y<0 || head.y>=gridSize*box) continue;
-        if(testSnake.some(seg=>seg.x===head.x && seg.y===head.y)) continue;
-
-        let newSnake = [head, ...testSnake];
-        let newFoods = testFoods.map(f=>({...f}));
-        let gained=0;
-
-        for(let i=0;i<newFoods.length;i++){
-            if(head.x===newFoods[i].x && head.y===newFoods[i].y){
-                newFoods.splice(i,1);
-                gained=1;
-                break;
-            }
+        for(let dir of directions){
+            let nx = node.x + dir.dx*box;
+            let ny = node.y + dir.dy*box;
+            if(nx<0 || nx>=gridSize*box || ny<0 || ny>=gridSize*box) continue;
+            if(bodySet.has(nx+","+ny) && !(nx===target.x && ny===target.y)) continue;
+            if(visited.has(nx+","+ny)) continue;
+            visited.add(nx+","+ny);
+            queue.push({x:nx,y:ny,path:node.path.concat(dir.name), depth: node.depth+1});
         }
-        if(gained===0) newSnake.pop();
-
-        let {score:s, path:p} = simulateSnake(newSnake,newFoods,depth-1);
-        s += gained*1000; // prioritize eating
-        if(s>best.score) best={score:s, path:[move,...p]};
     }
-    return best;
+    return [];
 }
 
-function getAIMove(){
+// ---------------- Safe Move ----------------
+function isSafeAfterMove(direction) {
+    let newHead = {...snake[0]};
+    if(direction==="UP") newHead.y-=box;
+    if(direction==="DOWN") newHead.y+=box;
+    if(direction==="LEFT") newHead.x-=box;
+    if(direction==="RIGHT") newHead.x+=box;
+    if(newHead.x<0 || newHead.x>=gridSize*box || newHead.y<0 || newHead.y>=gridSize*box) return false;
+    return !collision(newHead, snake);
+}
+
+// ---------------- Determine AI Move ----------------
+function getAIMove() {
     if(!useAI.checked) return d;
-    let lookaheadDepth = 15; // increase for more future insight
-    let {path} = simulateSnake(snake, foods, lookaheadDepth);
-    if(showPath.checked && path.length>0){
-        // Draw planned path
-        let pos={...snake[0]};
-        ctx.fillStyle="rgba(0,200,255,0.5)";
-        for(let m of path){
-            if(m==="UP") pos.y-=box;
-            if(m==="DOWN") pos.y+=box;
-            if(m==="LEFT") pos.x-=box;
-            if(m==="RIGHT") pos.x+=box;
-            ctx.fillRect(pos.x+box/4,pos.y+box/4,box/2,box/2);
+
+    let depthLimit = Math.min(gridSize,50); // limit lookahead to 50
+    let bestPath=[], bestMove=null;
+    let shortestDist = Infinity;
+
+    for(let food of foodList){
+        let path = bfsPath(snake[0], food, snake, depthLimit);
+        if(path.length>0 && path.length<shortestDist){
+            shortestDist = path.length;
+            bestPath = path;
+            bestMove = path[0];
         }
     }
-    return path.length>0 ? path[0] : d;
+
+    if(!bestMove){
+        // fallback: safe move
+        const dirs = ["UP","DOWN","LEFT","RIGHT"].filter(isSafeAfterMove);
+        return dirs.length>0?dirs[0]:d;
+    }
+
+    if(showPath.checked){
+        // Draw path
+        let pos={...snake[0]};
+        ctx.fillStyle="rgba(0,200,255,0.5)";
+        bestPath.forEach(move=>{
+            if(move==="UP") pos.y-=box;
+            if(move==="DOWN") pos.y+=box;
+            if(move==="LEFT") pos.x-=box;
+            if(move==="RIGHT") pos.x+=box;
+            ctx.fillRect(pos.x+8,pos.y+8,box-16,box-16);
+        });
+    }
+    return bestMove;
 }
 
 // ---------------- Draw ----------------
@@ -129,19 +157,18 @@ function draw(){
 
     // Draw snake
     snake.forEach((seg,i)=>{
-        ctx.fillStyle = i===0 ? "blue" : "lightblue";
+        ctx.fillStyle=i===0?"blue":"lightblue";
         ctx.fillRect(seg.x,seg.y,box,box);
         ctx.strokeStyle="darkblue";
         ctx.strokeRect(seg.x,seg.y,box,box);
     });
 
     // Draw foods
-    foods.forEach(f=>{
+    foodList.forEach(f=>{
         ctx.fillStyle="red";
         ctx.fillRect(f.x,f.y,box,box);
     });
 
-    // Determine next move
     d = getAIMove();
 
     let snakeX = snake[0].x;
@@ -151,39 +178,38 @@ function draw(){
     if(d==="LEFT") snakeX-=box;
     if(d==="RIGHT") snakeX+=box;
 
-    // Eat foods
-    for(let i=0;i<foods.length;i++){
-        if(snakeX===foods[i].x && snakeY===foods[i].y){
+    // Eat food
+    for(let i=foodList.length-1;i>=0;i--){
+        if(snakeX===foodList[i].x && snakeY===foodList[i].y){
             score++;
             eat.play();
-            foods.splice(i,1);
-            // spawn new if total less than count
-            if(foods.length<foodCount) foods.push(spawnFoods(1)[0]);
-            break;
+            foodList.splice(i,1);
         }
     }
 
-    let newHead={x:snakeX, y:snakeY};
-    if(snakeX<0 || snakeX>=gridSize*box || snakeY<0 || snakeY>=gridSize*box || collision(newHead,snake)){
+    // Refill food if needed
+    while(foodList.length<foodCount){
+        let f={x:Math.floor(Math.random()*gridSize)*box, y:Math.floor(Math.random()*gridSize)*box};
+        if(!snake.some(seg=>seg.x===f.x && seg.y===f.y) && !foodList.some(ff=>ff.x===f.x && ff.y===f.y)){
+            foodList.push(f);
+        }
+    }
+
+    let newHead={x:snakeX,y:snakeY};
+    if(snakeX<0||snakeX>=gridSize*box||snakeY<0||snakeY>=gridSize*box||collision(newHead,snake)){
         clearInterval(game);
         dead.play();
         return;
     }
 
     snake.unshift(newHead);
-    snake.pop();
-
-    document.getElementById("score").textContent = score;
+    document.getElementById("score").textContent=score;
 }
 
 // ---------------- Play Again ----------------
-document.getElementById("playAgain").addEventListener("click", ()=>{
-    gridSize = parseInt(document.getElementById("mapSize").value);
-    foodCount = parseInt(document.getElementById("foodCount").value);
-    initGame();
-});
+document.getElementById("playAgain").addEventListener("click",initGame);
 
-// Start
+// ---------------- Start Game ----------------
 initGame();
 </script>
 </body>
