@@ -60,11 +60,25 @@ let downS = new Audio("audio/down.mp3");
 // ---------------- Controls ----------------
 document.addEventListener("keydown", function(event){
     if(useAI.checked) return;
+
     let key = event.keyCode;
-    if(key == 37 && d!="RIGHT") { d="LEFT"; leftS.play(); }
-    else if(key == 38 && d!="DOWN") { d="UP"; up.play(); }
-    else if(key == 39 && d!="LEFT") { d="RIGHT"; rightS.play(); }
-    else if(key == 40 && d!="UP") { d="DOWN"; downS.play(); }
+    let head = snake[0];
+    let newHead = {x: head.x, y: head.y};
+
+    if(key == 37 && d!="RIGHT") newHead.x -= box;
+    else if(key == 38 && d!="DOWN") newHead.y -= box;
+    else if(key == 39 && d!="LEFT") newHead.x += box;
+    else if(key == 40 && d!="UP") newHead.y += box;
+    else return;
+
+    // Prevent crashing into itself manually
+    if(!snake.some(seg => seg.x === newHead.x && seg.y === newHead.y)) {
+        d = (key==37)?"LEFT":(key==38)?"UP":(key==39)?"RIGHT":"DOWN";
+        if(d=="LEFT") leftS.play();
+        if(d=="UP") up.play();
+        if(d=="RIGHT") rightS.play();
+        if(d=="DOWN") downS.play();
+    }
 });
 
 // ---------------- Collision ----------------
@@ -129,7 +143,10 @@ function draw(){
     if(snakeX===food.x && snakeY===food.y){
         score++;
         eat.play();
-        food = { x: Math.floor(Math.random()*17+1)*box, y: Math.floor(Math.random()*17+1)*box };
+        // spawn new food avoiding snake body
+        do {
+            food = { x: Math.floor(Math.random()*17+1)*box, y: Math.floor(Math.random()*17+1)*box };
+        } while (snake.some(seg => seg.x===food.x && seg.y===food.y));
     } else {
         snake.pop();
     }
