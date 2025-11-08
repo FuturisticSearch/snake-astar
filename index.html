@@ -11,7 +11,12 @@
     button { padding:8px 16px; cursor:pointer; background:#00f; color:#fff; border:none; border-radius:5px;}
     button:hover { background:#0055ff;}
     input { width:60px; }
-    #overlay { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); color:#fff; font-size:3em; display:flex; align-items:center; justify-content:center; flex-direction:column; z-index:10; display:none;}
+    #overlay {
+        position:absolute; top:0; left:0; width:100%; height:100%;
+        background:rgba(0,0,0,0.8); color:white; font-size:48px;
+        display:flex; justify-content:center; align-items:center;
+        z-index:10; flex-direction:column; display:none;
+    }
 </style>
 </head>
 <body>
@@ -27,7 +32,7 @@
 
 <div id="overlay">
     <div id="overlayText"></div>
-    <button id="overlayButton">Play Again</button>
+    <button onclick="initGame()">Play Again</button>
 </div>
 
 <script>
@@ -40,16 +45,14 @@ let appleCount = parseInt(document.getElementById("appleCountInput").value);
 let snake, foods, score, d, game;
 let useAI = document.getElementById("useAI");
 let showPath = document.getElementById("showPath");
-const overlay = document.getElementById("overlay");
-const overlayText = document.getElementById("overlayText");
-const overlayButton = document.getElementById("overlayButton");
 
 let dead = new Audio("/sound/gameover.mp3");
 let eat = new Audio("/sound/eated.mp3");
+let overlay = document.getElementById("overlay");
+let overlayText = document.getElementById("overlayText");
 
 // ---------------- Initialize Game ----------------
 function initGame() {
-    overlay.style.display = "none";
     gridSize = parseInt(document.getElementById("mapSizeInput").value);
     appleCount = parseInt(document.getElementById("appleCountInput").value);
     cvs.width = cvs.height = gridSize * box;
@@ -60,6 +63,8 @@ function initGame() {
 
     foods = [];
     for(let i=0;i<appleCount;i++) foods.push(spawnFood());
+
+    overlay.style.display = "none";
 
     if(game) clearInterval(game);
     game = setInterval(draw, 120);
@@ -174,6 +179,15 @@ function getAIMove(){
     return bestPath[0] || d;
 }
 
+// ---------------- Manual control ----------------
+document.addEventListener("keydown", function(event){
+    if(useAI.checked) return; // ignore manual input when AI is on
+    if(event.key === "ArrowUp" && d !== "DOWN") d = "UP";
+    if(event.key === "ArrowDown" && d !== "UP") d = "DOWN";
+    if(event.key === "ArrowLeft" && d !== "RIGHT") d = "LEFT";
+    if(event.key === "ArrowRight" && d !== "LEFT") d = "RIGHT";
+});
+
 // ---------------- Draw ----------------
 function draw(){
     ctx.fillStyle="#111";
@@ -188,7 +202,7 @@ function draw(){
 
     foods.forEach(f=>{ ctx.fillStyle="red"; ctx.fillRect(f.x,f.y,box,box); });
 
-    d = getAIMove();
+    if(useAI.checked) d = getAIMove();
 
     let snakeX = snake[0].x;
     let snakeY = snake[0].y;
@@ -212,29 +226,26 @@ function draw(){
     if(snakeX<0 || snakeX>=gridSize*box || snakeY<0 || snakeY>=gridSize*box || collision(newHead, snake)){
         clearInterval(game);
         dead.play();
-        overlayText.textContent = "YOU DIED";
+        overlayText.textContent = "You Died!";
         overlay.style.display = "flex";
         return;
     }
 
     snake.unshift(newHead);
-
-    // Remove tail if no food eaten
-    if(!foods.some(f=>f.x===newHead.x && f.y===newHead.y)) snake.pop();
-
+    snake.pop();
     document.getElementById("score").textContent = score;
 
-    // Win check: snake fills almost all map
-    if(snake.length >= gridSize*gridSize - appleCount){
+    // Win condition: snake fills grid (all space occupied)
+    if(snake.length >= gridSize*gridSize){
         clearInterval(game);
-        overlayText.textContent = "YOU WON!";
+        overlayText.textContent = "You Won!";
         overlay.style.display = "flex";
+        return;
     }
 }
 
 // ---------------- Play Again ----------------
 document.getElementById("playAgain").addEventListener("click", initGame);
-overlayButton.addEventListener("click", initGame);
 
 // ---------------- Start Game ----------------
 initGame();
