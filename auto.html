@@ -4,44 +4,118 @@
 <head>
   <meta charset="utf-8">
   <title>Snake ASTAR Auto</title>
+  <style>
+    /* Global Styles */
+    body {
+      background: #1e1e1e;
+      color: #f0f0f0;
+      font-family: 'Courier New', Courier, monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+
+    h2 {
+      color: #00ff00;
+      margin-bottom: 10px;
+    }
+
+    canvas {
+      background-color: #111;
+      border: 3px solid #00ff00;
+      border-radius: 8px;
+      display: block;
+      margin: 20px 0;
+    }
+
+    h1 {
+      margin: 10px 0;
+      font-size: 1.5em;
+    }
+
+    button {
+      background-color: #00ff00;
+      color: #111;
+      border: none;
+      padding: 10px 20px;
+      margin: 5px;
+      border-radius: 5px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    button:hover {
+      background-color: #00cc00;
+    }
+
+    p {
+      margin-top: 10px;
+      font-size: 1.1em;
+    }
+
+    /* Snake and food styling (via JS canvas) */
+    .snake {
+      fill: #00ff00;
+      stroke: #008800;
+      stroke-width: 2;
+    }
+
+    .food {
+      fill: #ff3333;
+      stroke: #880000;
+      stroke-width: 2;
+    }
+  </style>
 </head>
-<style>
-  body {
-    text-align: center;
-    font-family: calibri;
-  }
-</style>
+
 <body>
   <h2>arsan.dev Snake AI with A* Algorithm</h2>
-  <canvas></canvas>
+  <canvas id="gameCanvas"></canvas>
   <h1>Score: <span id="score">0</span> | Time: <span id="time">0</span>s</h1>
-  <p><b>Mode: <font color="red">Automatic (BOT)</font></b></p>
-  <button type="button" onclick="location.reload()">Refresh</button>
-  <button type="button" id="play">Play</button>
-  <button type="button" id="pause" hidden>Pause</button>
+  <p><b>Mode: <font color="#ff5555">Automatic (BOT)</font></b></p>
+
+  <div>
+    <button type="button" onclick="location.reload()">Refresh</button>
+    <button type="button" id="play">Play</button>
+    <button type="button" id="pause" hidden>Pause</button>
+  </div>
+
   <script src="snake.js" charset="utf-8"></script>
-  <script type="text/javascript">
-    var snake = new Game({
+  <script>
+    const snake = new Game({
+      canvas: document.querySelector('#gameCanvas'),
       size: 400,
       blockSize: 15,
       fps: 25,
       utils: {
-        showGrid: true,
-        distance: true,
-        distanceCount: true,
-        distancePerpendicular: true
+        showGrid: false,
+        distance: false,
+        distanceCount: false,
+        distancePerpendicular: false
       },
-      aStar: true
+      aStar: true,
+      snakeColor: '#00ff00',
+      snakeStroke: '#008800',
+      foodColor: '#ff3333',
+      foodStroke: '#880000'
     });
-    var playBtn = document.querySelector("#play");
-    var pauseBtn = document.querySelector("#pause");
-    playBtn.addEventListener("click", function(){
-      this.hidden = true;
+
+    const playBtn = document.querySelector("#play");
+    const pauseBtn = document.querySelector("#pause");
+
+    playBtn.addEventListener("click", () => {
+      playBtn.hidden = true;
       pauseBtn.hidden = false;
       snake.play();
     });
-    pauseBtn.addEventListener("click", function(){
-      this.hidden = true;
+
+    pauseBtn.addEventListener("click", () => {
+      pauseBtn.hidden = true;
       playBtn.hidden = false;
       snake.pause();
     });
