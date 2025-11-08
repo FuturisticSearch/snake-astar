@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Blue Snake AI</title>
+<title>Blue Snake AI - Multi-Food Lookahead</title>
 <style>
     body { display:flex; flex-direction:column; align-items:center; background:#222; font-family:Arial; color:#fff; margin:0; padding:20px;}
     canvas { background:#111; border:3px solid #00f; border-radius:8px; margin:20px 0;}
@@ -15,11 +15,11 @@
 <body>
 <h1>Blue Snake AI</h1>
 
-<label>Use AI: <input type="checkbox" id="useAI"></label>
+<label>Use AI: <input type="checkbox" id="useAI" checked></label>
 <label>Show AI Path: <input type="checkbox" id="showPath"></label>
 
 <label>Map Size: <input type="number" id="mapSize" value="19" min="5" max="50"></label>
-<label>Food Amount: <input type="number" id="foodAmount" value="1" min="1" max="10"></label>
+<label>Food Amount: <input type="number" id="foodAmount" value="3" min="1" max="10"></label>
 
 <canvas id="snake" width="608" height="608"></canvas>
 <h1>Score: <span id="score">0</span></h1>
@@ -42,7 +42,7 @@ let eat = new Audio("/sound/eated.mp3");
 let gridSize = parseInt(mapSizeInput.value);
 let foodCount = parseInt(foodAmountInput.value);
 
-// Initialize game
+// ---------------- Initialize Game ----------------
 function initGame(){
     gridSize = parseInt(mapSizeInput.value);
     foodCount = parseInt(foodAmountInput.value);
@@ -59,7 +59,7 @@ function initGame(){
     game = setInterval(draw, 120);
 }
 
-// Spawn food avoiding snake
+// ---------------- Spawn Food ----------------
 function spawnFood(){
     let f;
     do {
@@ -68,42 +68,53 @@ function spawnFood(){
     return f;
 }
 
-// Collision
+// ---------------- Collision ----------------
 function collision(head, array){
     return array.some(seg => seg.x===head.x && seg.y===head.y);
 }
 
-// BFS for AI path
-function bfsPath(start, targets, snakeBody){
+// ---------------- BFS to all food ----------------
+function bfsPathToFood(start, snakeBody, targets){
     const directions = [
         {name:"UP", dx:0, dy:-1},
         {name:"DOWN", dx:0, dy:1},
         {name:"LEFT", dx:-1, dy:0},
         {name:"RIGHT", dx:1, dy:0}
     ];
-    let queue = [{x:start.x, y:start.y, path:[]}];
-    let visited = new Set([start.x+","+start.y]);
-    let bodySet = new Set(snakeBody.map(seg=>seg.x+","+seg.y));
+    let bestPath = [];
+    let bestTarget = null;
+    let bestScore = -Infinity;
 
-    while(queue.length>0){
-        let node = queue.shift();
-        for(let target of targets){
-            if(node.x===target.x && node.y===target.y) return node.path;
-        }
-        for(let dir of directions){
-            let nx = node.x + dir.dx*box;
-            let ny = node.y + dir.dy*box;
-            if(nx<0 || nx>=gridSize*box || ny<0 || ny>=gridSize*box) continue;
-            if(bodySet.has(nx+","+ny) && !targets.some(t=>t.x===nx && t.y===ny)) continue;
-            if(visited.has(nx+","+ny)) continue;
-            visited.add(nx+","+ny);
-            queue.push({x:nx, y:ny, path: node.path.concat(dir.name)});
+    for(let target of targets){
+        let queue = [{x:start.x, y:start.y, path:[]}];
+        let visited = new Set([start.x+","+start.y]);
+        let bodySet = new Set(snakeBody.map(seg=>seg.x+","+seg.y));
+        let found = false;
+
+        while(queue.length && !found){
+            let node = queue.shift();
+            if(node.x===target.x && node.y===target.y){
+                bestPath = node.path;
+                bestTarget = target;
+                bestScore = 1000 - node.path.length; // shorter path preferred
+                found = true;
+                break;
+            }
+            for(let dir of directions){
+                let nx = node.x + dir.dx*box;
+                let ny = node.y + dir.dy*box;
+                if(nx<0 || nx>=gridSize*box || ny<0 || ny>=gridSize*box) continue;
+                if(bodySet.has(nx+","+ny) && !(nx===target.x && ny===target.y)) continue;
+                if(visited.has(nx+","+ny)) continue;
+                visited.add(nx+","+ny);
+                queue.push({x:nx, y:ny, path: node.path.concat(dir.name)});
+            }
         }
     }
-    return [];
+    return bestPath;
 }
 
-// Safe move check
+// ---------------- Safe move ----------------
 function isSafeAfterMove(direction){
     let newHead = {...snake[0]};
     if(direction==="UP") newHead.y-=box;
@@ -114,10 +125,10 @@ function isSafeAfterMove(direction){
     return !collision(newHead, snake);
 }
 
-// Determine AI move
+// ---------------- AI Move ----------------
 function getAIMove(){
     if(!useAI.checked) return d;
-    const path = bfsPath(snake[0], food, snake);
+    let path = bfsPathToFood(snake[0], snake, food);
     if(path.length===0){
         const dirs = ["UP","DOWN","LEFT","RIGHT"].filter(isSafeAfterMove);
         return dirs.length>0 ? dirs[0] : d;
@@ -136,7 +147,7 @@ function getAIMove(){
     return path[0];
 }
 
-// Draw game
+// ---------------- Draw ----------------
 function draw(){
     ctx.fillStyle="#111";
     ctx.fillRect(0,0,cvs.width,cvs.height);
@@ -183,7 +194,7 @@ function draw(){
     document.getElementById("score").textContent = score;
 }
 
-// Play again
+// ---------------- Play Again ----------------
 document.getElementById("playAgain").addEventListener("click", initGame);
 
 // Start
