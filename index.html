@@ -2,217 +2,175 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Blue Snake AI - Lookahead Visualization</title>
+<title>Snake AI 5-Step Lookahead</title>
 <style>
-    body { display:flex; flex-direction:column; align-items:center; background:#222; font-family:Arial; color:#fff; margin:0; padding:20px;}
-    canvas { background:#111; border:3px solid #00f; border-radius:8px; margin:20px 0;}
-    h1 { margin:10px 0;}
-    label, button { margin:10px; font-size:1.2em;}
-    button { padding:8px 16px; cursor:pointer; background:#00f; color:#fff; border:none; border-radius:5px;}
-    button:hover { background:#0055ff;}
+  body { 
+    display:flex; flex-direction:column; align-items:center; 
+    font-family:sans-serif; background:#111; color:white; margin:0; padding:20px;
+  }
+  canvas { background:#222; margin:20px 0; border:2px solid #00f; }
+  button { padding:10px 20px; margin:5px; background:#00f; color:white; border:none; cursor:pointer; border-radius:4px; }
+  button:hover { background:#0055ff; }
+  label { margin-left:10px; }
 </style>
 </head>
 <body>
-<h1>Blue Snake AI</h1>
-<label><input type="checkbox" id="useAI"> Use AI</label>
-<label><input type="checkbox" id="showPath"> Show AI Path</label>
-<canvas id="snake" width="608" height="608"></canvas>
-<h1>Score: <span id="score">0</span></h1>
-<button id="playAgain">Play Again</button>
+<h2>Snake AI Game</h2>
+<canvas id="gameCanvas" width="608" height="608"></canvas>
+<div>
+  <button id="playAgain">Play Again</button>
+  <label><input type="checkbox" id="useAI"> Use AI</label>
+</div>
+<h3>Score: <span id="score">0</span></h3>
 
 <script>
-// ---------------- Setup ----------------
-const cvs = document.getElementById("snake");
-const ctx = cvs.getContext("2d");
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
 const box = 32;
+let score = 0;
+let snake, food, d, interval;
+let useAI = false;
+const scoreEl = document.getElementById("score");
 
-let snake, food, score, d, aiDirection, game;
-const useAI = document.getElementById("useAI");
-const showPath = document.getElementById("showPath");
+const eatSound = new Audio("/sound/eated.mp3");
+const gameOverSound = new Audio("/sound/gameover.mp3");
 
-// ---------------- Sounds ----------------
-let dead = new Audio("/sound/gameover.mp3");
-let eat = new Audio("/sound/eated.mp3");
+document.getElementById("useAI").addEventListener("change", (e)=>useAI=e.target.checked);
+document.getElementById("playAgain").addEventListener("click", startGame);
 
-// ---------------- Initialize ----------------
-function initGame(){
-    snake = [{ x: 9*box, y: 9*box }];
-    food = spawnFood();
+function startGame(){
+    clearInterval(interval);
     score = 0;
-    d = "RIGHT";
-    aiDirection = "RIGHT";
-    if(game) clearInterval(game);
-    game = setInterval(draw, 180); // slower for nicer visuals
+    scoreEl.textContent = score;
+    d = null;
+    snake = [{x:9*box, y:9*box}];
+    food = randomFood();
+    interval = setInterval(draw, 150); // slower speed
 }
 
-function spawnFood(){
-    let f;
+function randomFood(){
+    let fx, fy;
     do {
-        f = { x: Math.floor(Math.random()*17+1)*box, y: Math.floor(Math.random()*17+1)*box };
-    } while(snake.some(seg => seg.x===f.x && seg.y===f.y));
-    return f;
+        fx = Math.floor(Math.random()*19)*box;
+        fy = Math.floor(Math.random()*19)*box;
+    } while(snake.some(s=>s.x===fx && s.y===fy));
+    return {x:fx, y:fy};
 }
 
-// ---------------- Collision ----------------
-function collision(head, array){
-    return array.some(seg => seg.x===head.x && seg.y===head.y);
-}
-
-// ---------------- AI Logic ----------------
-function getAIMove(){
-    if(!useAI.checked) return d;
-
-    const directions = ["UP","DOWN","LEFT","RIGHT"];
-    let safeMoves = directions.filter(dir => isSafeMove(dir));
-
-    if(safeMoves.length===0) return d;
-
-    let bestScore = -Infinity;
-    let bestMove = safeMoves[0];
-    let bestPath = [];
-
-    for(let dir of safeMoves){
-        const {score: s, path} = simulatePath(snake, dir, 5);
-        if(s > bestScore){
-            bestScore = s;
-            bestMove = dir;
-            bestPath = path;
-        }
+document.addEventListener("keydown", e=>{
+    if(!useAI){
+        if(e.key === "ArrowLeft" && d!=="RIGHT") d="LEFT";
+        if(e.key === "ArrowRight" && d!=="LEFT") d="RIGHT";
+        if(e.key === "ArrowUp" && d!=="DOWN") d="UP";
+        if(e.key === "ArrowDown" && d!=="UP") d="DOWN";
     }
+});
 
-    // Draw path if toggle on
-    if(showPath.checked){
-        ctx.fillStyle = "rgba(0,200,255,0.5)";
-        bestPath.forEach(pos=>{
-            ctx.fillRect(pos.x+8,pos.y+8,box-16,box-16);
-        });
-    }
-
-    return bestMove;
+function collision(head){
+    return snake.slice(1).some(s=>s.x===head.x && s.y===head.y);
 }
 
-function isSafeMove(direction, testSnake=snake){
-    let head = testSnake[0];
-    let nx=head.x, ny=head.y;
-    if(direction==="LEFT") nx-=box;
-    if(direction==="RIGHT") nx+=box;
-    if(direction==="UP") ny-=box;
-    if(direction==="DOWN") ny+=box;
-    if(nx<0 || nx>=18*box || ny<0 || ny>=18*box) return false;
-    if(testSnake.some(seg => seg.x===nx && seg.y===ny)) return false;
-    return true;
-}
-
-// Recursive simulation returning score and path
-function simulatePath(testSnake, direction, depth){
-    let head = {...testSnake[0]};
-    let newSnake = testSnake.map(seg => ({...seg}));
-    let path = [];
-
-    if(direction==="LEFT") head.x-=box;
-    if(direction==="RIGHT") head.x+=box;
-    if(direction==="UP") head.y-=box;
-    if(direction==="DOWN") head.y+=box;
-
-    if(head.x<0 || head.x>=18*box || head.y<0 || head.y>=18*box || collision(head,newSnake)) return {score:-1000, path:[]};
-
-    newSnake.unshift(head);
-    if(head.x!==food.x || head.y!==food.y) newSnake.pop();
-
-    path.push(head);
-
-    if(depth===0){
-        let dist = Math.abs(head.x-food.x)+Math.abs(head.y-food.y);
-        let freeSpace = floodFill(head.x, head.y, newSnake);
-        return {score: freeSpace - dist, path};
-    }
-
-    const dirs = ["UP","DOWN","LEFT","RIGHT"].filter(dir=>isSafeMove(dir,newSnake));
-    if(dirs.length===0) return {score:-1000, path};
-
-    let best = -Infinity;
-    let bestSubPath = [];
-    for(let dir of dirs){
-        let {score: s, path: p} = simulatePath(newSnake, dir, depth-1);
-        if(s>best){
-            best = s;
-            bestSubPath = p;
-        }
-    }
-    return {score: best, path: path.concat(bestSubPath)};
-}
-
-// Flood-fill to estimate available space
-function floodFill(x, y, occupied){
-    let visited = {};
-    let queue = [{x,y}];
-    let count = 0;
-    function key(pos){ return pos.x+","+pos.y; }
-    while(queue.length){
-        let pos = queue.shift();
-        if(pos.x<0 || pos.x>=18*box || pos.y<0 || pos.y>=18*box) continue;
-        if(visited[key(pos)]) continue;
-        if(occupied.some(seg => seg.x===pos.x && seg.y===pos.y)) continue;
-        visited[key(pos)] = true;
-        count++;
-        queue.push({x:pos.x+box,y:pos.y});
-        queue.push({x:pos.x-box,y:pos.y});
-        queue.push({x:pos.x,y:pos.y+box});
-        queue.push({x:pos.x,y:pos.y-box});
-    }
-    return count;
-}
-
-// ---------------- Draw ----------------
 function draw(){
-    ctx.fillStyle = "#111";
-    ctx.fillRect(0,0,cvs.width,cvs.height);
+    ctx.fillStyle="#222";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    ctx.fillStyle="#f00";
+    ctx.fillRect(food.x, food.y, box, box);
 
     for(let i=0;i<snake.length;i++){
-        ctx.fillStyle = i===0?"blue":"lightblue";
-        ctx.fillRect(snake[i].x,snake[i].y,box,box);
-        ctx.strokeStyle="darkblue";
-        ctx.strokeRect(snake[i].x,snake[i].y,box,box);
+        ctx.fillStyle=(i===0)?"#00f":"#55f";
+        ctx.fillRect(snake[i].x, snake[i].y, box, box);
+        ctx.strokeStyle="#000";
+        ctx.strokeRect(snake[i].x, snake[i].y, box, box);
     }
 
-    ctx.fillStyle = "red";
-    ctx.fillRect(food.x,food.y,box,box);
+    if(useAI) d = getAIMove();
 
-    aiDirection = getAIMove();
-    d = aiDirection;
+    if(!d) return;
 
-    let snakeX = snake[0].x;
-    let snakeY = snake[0].y;
+    let newHead = {x: snake[0].x, y: snake[0].y};
+    if(d==="LEFT") newHead.x -= box;
+    if(d==="RIGHT") newHead.x += box;
+    if(d==="UP") newHead.y -= box;
+    if(d==="DOWN") newHead.y += box;
 
-    if(d==="LEFT") snakeX-=box;
-    if(d==="RIGHT") snakeX+=box;
-    if(d==="UP") snakeY-=box;
-    if(d==="DOWN") snakeY+=box;
-
-    if(snakeX===food.x && snakeY===food.y){
-        score++;
-        eat.play();
-        food = spawnFood();
-    } else {
-        snake.pop();
-    }
-
-    let newHead = {x:snakeX, y:snakeY};
-    if(snakeX<0 || snakeX>=18*box || snakeY<0 || snakeY>=18*box || collision(newHead,snake)){
-        clearInterval(game);
-        dead.play();
+    if(newHead.x<0 || newHead.x>=canvas.width || newHead.y<0 || newHead.y>=canvas.height || collision(newHead)){
+        clearInterval(interval);
+        gameOverSound.play();
         return;
     }
 
     snake.unshift(newHead);
-    document.getElementById("score").textContent = score;
+
+    if(newHead.x===food.x && newHead.y===food.y){
+        score++;
+        scoreEl.textContent = score;
+        eatSound.play();
+        food = randomFood();
+    } else {
+        snake.pop();
+    }
 }
 
-// ---------------- Play Again ----------------
-document.getElementById("playAgain").addEventListener("click", initGame);
+// ================= AI =================
+function getAIMove(){
+    const dirs = ["LEFT","UP","RIGHT","DOWN"];
+    const opposite = { "LEFT":"RIGHT","RIGHT":"LEFT","UP":"DOWN","DOWN":"UP" };
+    let bestDir=null;
+    let bestScore=-Infinity;
 
-// ---------------- Start Game ----------------
-initGame();
+    for(let dir of dirs){
+        if(d && dir===opposite[d]) continue; // no reversing
+        let score = simulate(dir,5); // 5-step lookahead
+        if(score>bestScore){ bestScore=score; bestDir=dir; }
+    }
+    return bestDir;
+}
+
+function simulate(dir, steps){
+    let simSnake = JSON.parse(JSON.stringify(snake));
+    let simFood = {...food};
+    let simDir = dir;
+    let score = 0;
+
+    for(let i=0;i<steps;i++){
+        let head = {x: simSnake[0].x, y: simSnake[0].y};
+        if(simDir==="LEFT") head.x -= box;
+        if(simDir==="RIGHT") head.x += box;
+        if(simDir==="UP") head.y -= box;
+        if(simDir==="DOWN") head.y += box;
+
+        // collision with wall or self
+        if(head.x<0 || head.x>=canvas.width || head.y<0 || head.y>=canvas.height || simSnake.some(s=>s.x===head.x && s.y===head.y)){
+            score -= 1000; // heavy penalty for dying
+            break;
+        }
+
+        simSnake.unshift(head);
+        if(head.x===simFood.x && head.y===simFood.y){
+            score += 100;
+            simFood = randomFoodForSim(simSnake);
+        } else {
+            simSnake.pop();
+        }
+
+        // favor moving closer to food
+        score -= Math.abs(head.x-simFood.x)/box + Math.abs(head.y-simFood.y)/box;
+    }
+
+    return score;
+}
+
+function randomFoodForSim(simSnake){
+    let fx, fy;
+    do{
+        fx = Math.floor(Math.random()*19)*box;
+        fy = Math.floor(Math.random()*19)*box;
+    } while(simSnake.some(s=>s.x===fx && s.y===fy));
+    return {x:fx, y:fy};
+}
+
+startGame();
 </script>
 </body>
 </html>
