@@ -76,7 +76,7 @@ let gridSize, appleCount, snake, apples, dir, gameTimer, intervalMs, score;
 let paused = false;
 const DIRS = {UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0]};
 let trainingEnabled = false;
-let trainingSpeed = 1; // milliseconds per tick for ultra-fast training
+let trainingSpeed = 0.1; // milliseconds per tick for ultra-fast training
 
 // ----- Cookie helpers -----
 function getCookie(name){
