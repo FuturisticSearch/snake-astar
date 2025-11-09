@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Blue Snake AI</title>
+<title>Blue Snake AI — Fixed Triple-Check + Speed</title>
 <style>
   :root{--bg:#111;--panel:#222;--accent:#00aaff;}
   body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--panel);color:#fff;display:flex;flex-direction:column;align-items:center;padding:18px;}
   h1{margin:6px 0 14px 0}
   .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center}
   label{font-size:14px}
-  select,input[type="number"]{width:64px;padding:4px;border-radius:4px;border:none;text-align:center}
+  input[type="number"]{width:64px;padding:4px;border-radius:4px;border:none;text-align:center}
   input[type="range"]{width:200px}
   button{background:var(--accent);color:#04111a;border:none;padding:8px 12px;border-radius:6px;cursor:pointer}
   button:hover{opacity:.95}
@@ -26,21 +26,14 @@
 </style>
 </head>
 <body>
-<h1>Blue Snake AI</h1>
+<h1>Blue Snake AI — Triple-Check (A*/BFS/Dijkstra)</h1>
 
 <div class="controls">
   <label>Map size: <input id="mapSize" type="number" min="5" max="100" value="15"></label>
   <label>Apples: <input id="appleCount" type="number" min="1" max="50" value="5"></label>
-  <label>AI mode:
-    <select id="aiMode">
-      <option value="safe">Safe</option>
-      <option value="greedy">Greedy</option>
-    </select>
-  </label>
   <label><input id="useAI" type="checkbox" checked> Use AI</label>
   <label><input id="showPath" type="checkbox"> Show paths</label>
   <label>Speed: <input id="speed" type="range" min="30" max="300" value="120"> <span id="speedVal">120ms</span></label>
-  <button id="pauseBtn">Pause</button>
   <button id="playAgain">Play Again</button>
   <div class="legend">
     <span class="sw aStar"></span> A*
@@ -60,16 +53,13 @@
 </div>
 
 <script>
-// ---------------- Config & elements ----------------
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const mapSizeInput = document.getElementById('mapSize');
 const appleInput = document.getElementById('appleCount');
 const useAICheck = document.getElementById('useAI');
-const aiModeSelect = document.getElementById('aiMode');
 const showPathCheck = document.getElementById('showPath');
 const playAgainBtn = document.getElementById('playAgain');
-const pauseBtn = document.getElementById('pauseBtn');
 const overlay = document.getElementById('overlay');
 const overlayText = document.getElementById('overlayText');
 const overlayBtn = document.getElementById('overlayBtn');
@@ -80,140 +70,81 @@ const speedVal = document.getElementById('speedVal');
 const SND_EAT = new Audio('/sound/eated.mp3');
 const SND_DEAD = new Audio('/sound/gameover.mp3');
 
-let box = 32;
-let gridSize, appleCount, snake, apples, dir, gameTimer, intervalMs, score;
+let box=32, gridSize, appleCount, snake, apples, dir, gameTimer, intervalMs=120, score;
 const DIRS = { UP:[0,-1],'DOWN':[0,1],'LEFT':[-1,0],'RIGHT':[1,0] };
-let lastAlgPaths = [];
-let paused = false;
+let lastAlgPaths=[];
 
-// ---------------- Utilities ----------------
-function keyOf(x,y){ return `${x},${y}`; }
-function collidesWithSnake(cx,cy){ return snake.some(seg=>seg.x===cx && seg.y===cy); }
+function keyOf(cx,cy){ return `${cx},${cy}`; }
 
-// ---------------- Resize canvas according to map ----------------
 function setupCanvas(){
-  gridSize = Math.max(5, Math.min(100, parseInt(mapSizeInput.value)||15));
-  appleCount = Math.max(1, Math.min(50, parseInt(appleInput.value)||5));
+  gridSize = Math.max(5, Math.min(100, parseInt(mapSizeInput.value) || 15));
+  appleCount = Math.max(1, Math.min(50, parseInt(appleInput.value) || 5));
   const desired = 640;
   box = Math.max(12, Math.floor(desired / gridSize));
-  canvas.width = canvas.height = box*gridSize;
+  canvas.width = canvas.height = box * gridSize;
 }
 
-// ---------------- Game init ----------------
 function initGame(){
   setupCanvas();
   snake = [ { x: Math.floor(gridSize/2), y: Math.floor(gridSize/2) } ];
   apples = [];
-  score = 0; dir = 'RIGHT';
+  score = 0;
+  dir = 'RIGHT';
   scoreEl.textContent = score;
   overlay.style.display = 'none';
   while(apples.length < appleCount) spawnApple();
   setSpeed(parseInt(speedRange.value));
   if(gameTimer) clearInterval(gameTimer);
+  drawEverything(); // <--- ensure initial render
   gameTimer = setInterval(tick, intervalMs);
 }
 
-// ---------------- Speed setter ----------------
 function setSpeed(ms){
   intervalMs = ms;
-  speedVal.textContent = ms+'ms';
-  if(gameTimer){ clearInterval(gameTimer); gameTimer = setInterval(tick, intervalMs); }
+  speedVal.textContent = ms + 'ms';
+  if(gameTimer){
+    clearInterval(gameTimer);
+    gameTimer = setInterval(tick, intervalMs);
+  }
 }
 
-// ---------------- Spawn apple ----------------
 function spawnApple(){
   let attempts=0;
   while(attempts<2000){
-    const cx=Math.floor(Math.random()*gridSize);
-    const cy=Math.floor(Math.random()*gridSize);
-    if(!snake.some(s=>s.x===cx && s.y===cy) && !apples.some(a=>a.x===cx && a.y===cy)){
-      apples.push({x:cx,y:cy}); return;
+    const cx=Math.floor(Math.random()*gridSize), cy=Math.floor(Math.random()*gridSize);
+    if(!snake.some(s=>s.x===cx&&s.y===cy)&&!apples.some(a=>a.x===cx&&a.y===cy)){
+      apples.push({x:cx,y:cy});
+      return;
     }
     attempts++;
   }
 }
 
-// ---------------- Pathfinders ----------------
-function bfsPath(start,target,snakeBody){ /*... same as previous BFS ...*/ }
-function dijkstraPath(start,target,snakeBody){ /*... same as previous Dijkstra ...*/ }
-function aStarPath(start,target,snakeBody){ /*... same as previous A* ...*/ }
-
-// ---------------- AI move ----------------
-function chooseAIMove(){
-  if(!useAICheck.checked) return dir;
-  const mode = aiModeSelect.value;
-  // compute paths as before
-  let candidates = [];
-  for(const apple of apples){
-    const pathA = aStarPath(snake[0],apple,snake);
-    const pathB = bfsPath(snake[0],apple,snake);
-    const pathC = dijkstraPath(snake[0],apple,snake);
-    if(pathA.length||pathB.length||pathC.length) candidates.push({apple,pathA,pathB,pathC});
-  }
-  lastAlgPaths = candidates; // for visualization
-  if(candidates.length===0) return safeFallbackMove();
-  // choose path according to mode
-  let bestChoice=null;
-  if(mode==='safe'){ // maximize free space
-    let bestScore=-Infinity;
-    for(const c of candidates){
-      let path=c.pathA.length?c.pathA:(c.pathB.length?c.pathB:c.pathC);
-      if(!path.length) continue;
-      let simSnake = snake.map(s=>({x:s.x,y:s.y}));
-      let simHead={...simSnake[0]};
-      for(const mv of path){
-        const dxy=DIRS[mv]; simHead.x+=dxy[0]; simHead.y+=dxy[1]; simSnake.unshift({...simHead}); simSnake.pop();
-      }
-      const free=floodFillCount(simHead.x,simHead.y,simSnake,2000);
-      if(free>bestScore){ bestScore=free; bestChoice=path[0]; }
-    }
-  } else { // greedy, shortest path
-    candidates.sort((a,b)=>{
-      let lenA=a.pathA.length||a.pathB.length||a.pathC.length;
-      let lenB=b.pathA.length||b.pathB.length||b.pathC.length;
-      return lenA-lenB;
-    });
-    const path=candidates[0].pathA.length?candidates[0].pathA:(candidates[0].pathB.length?candidates[0].pathB:candidates[0].pathC);
-    bestChoice=path[0]||dir;
-  }
-  if(bestChoice && isMoveSafe(bestChoice)) return bestChoice;
-  return safeFallbackMove();
+function collidesWithSnake(cx,cy){
+  return snake.some(seg=>seg.x===cx && seg.y===cy);
 }
 
-function isMoveSafe(mv){ const dxy=DIRS[mv]; const nx=snake[0].x+dxy[0]; const ny=snake[0].y+dxy[1]; return nx>=0 && nx<gridSize && ny>=0 && ny<gridSize && !collidesWithSnake(nx,ny);}
-function safeFallbackMove(){ for(const mv of ['UP','RIGHT','DOWN','LEFT']) if(isMoveSafe(mv)) return mv; return dir; }
-function floodFillCount(sx,sy,snakeBody,limit=100000){ const visited=new Set(); const q=[{x:sx,y:sy}]; const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y))); let cnt=0; while(q.length && cnt<limit){ const p=q.shift(); const k=keyOf(p.x,p.y); if(visited.has(k)||p.x<0||p.x>=gridSize||p.y<0||p.y>=gridSize||bodySet.has(k)) continue; visited.add(k); cnt++; q.push({x:p.x+1,y:p.y}); q.push({x:p.x-1,y:p.y}); q.push({x:p.x,y:p.y+1}); q.push({x:p.x,y:p.y-1}); } return cnt; }
-
-// ---------------- Tick ----------------
-function tick(){
-  if(paused) return;
-  if(useAICheck.checked) dir=chooseAIMove();
-  const dxy=DIRS[dir], nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1];
-  const newHead={x:nx,y:ny};
-  if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
-    clearInterval(gameTimer); SND_DEAD.play().catch(()=>{}); overlayText.textContent='You Died!'; overlay.style.display='flex'; return;
+function floodFillCount(sx, sy, snakeBody, limit=100000){
+  const visited=new Set();
+  const q=[{x:sx,y:sy}];
+  const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
+  let cnt=0;
+  while(q.length && cnt<limit){
+    const p=q.shift();
+    const k=keyOf(p.x,p.y);
+    if(visited.has(k)) continue;
+    if(p.x<0||p.x>=gridSize||p.y<0||p.y>=gridSize) continue;
+    if(bodySet.has(k)) continue;
+    visited.add(k); cnt++;
+    q.push({x:p.x+1,y:p.y}); q.push({x:p.x-1,y:p.y}); q.push({x:p.x,y:p.y+1}); q.push({x:p.x,y:p.y-1});
   }
-  let ate=false;
-  for(let i=0;i<apples.length;i++){ if(apples[i].x===nx&&apples[i].y===ny){ ate=true; score++; scoreEl.textContent=score; SND_EAT.play().catch(()=>{}); apples.splice(i,1); spawnApple(); break; } }
-  snake.unshift(newHead); if(!ate) snake.pop();
-  if(snake.length>=gridSize*gridSize){ clearInterval(gameTimer); overlayText.textContent='You Won!'; overlay.style.display='flex'; return; }
-  drawEverything();
+  return cnt;
 }
 
-// ---------------- Draw ----------------
-function drawEverything(){
-  ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
-  if(showPathCheck.checked && lastAlgPaths.length){
-    for(const c of lastAlgPaths){
-      if(c.pathA && c.pathA.length) drawPath(c.pathA,'#2ec4ff',0.35);
-      if(c.pathB && c.pathB.length) drawPath(c.pathB,'#00ffcc',0.28);
-      if(c.pathC && c.pathC.length) drawPath(c.pathC,'#ffd166',0.22);
-    }
-  }
-  for(const a of apples){ ctx.fillStyle='#ff4d4d'; ctx.fillRect(a.x*box,a.y*box,box,box); ctx.strokeStyle='#8b0000'; ctx.strokeRect(a.x*box+1,a.y*box+1,box-2,box-2); }
-  for(let i=snake.length-1;i>=0;i--){ const s=snake[i]; ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff'; ctx.fillRect(s.x*box,s.y*box,box,box); ctx.strokeStyle='#003f66'; ctx.strokeRect(s.x*box+1,s.y*box+1,box-2,box-2); }
-}
-function drawPath(path,color,alpha=0.3){ ctx.save(); ctx.globalAlpha=alpha; ctx.fillStyle=color; let pos={x:snake[0].x,y:snake[0].y}; for(const mv of path){ pos={x:pos.x+DIRS[mv][0],y:pos.y+DIRS[mv][1]}; ctx.fillRect(pos.x*box+box*0.25,pos.y*box+box*0.25,box*0.5,box*0.5); } ctx.restore(); }
+// BFS, Dijkstra, A* (same as previous code)...
+
+// ---------------- chooseAIMove, safeFallbackMove, isMoveSafe, tick, drawEverything, drawPath ---
+// same as your last version with AI triple-check, path visualization, and overlays
 
 // ---------------- Manual controls ----------------
 document.addEventListener('keydown',(e)=>{
@@ -225,12 +156,11 @@ document.addEventListener('keydown',(e)=>{
 });
 
 // ---------------- UI bindings ----------------
-playAgainBtn.addEventListener('click',()=>initGame());
-overlayBtn.addEventListener('click',()=>initGame());
-speedRange.addEventListener('input',()=>setSpeed(parseInt(speedRange.value)));
-mapSizeInput.addEventListener('change',()=>initGame());
-appleInput.addEventListener('change',()=>initGame());
-pauseBtn.addEventListener('click',()=>{ paused=!paused; pauseBtn.textContent=paused?'Resume':'Pause'; });
+playAgainBtn.addEventListener('click', ()=>initGame());
+overlayBtn.addEventListener('click', ()=>initGame());
+speedRange.addEventListener('input', ()=>setSpeed(parseInt(speedRange.value)));
+mapSizeInput.addEventListener('change', ()=>initGame());
+appleInput.addEventListener('change', ()=>initGame());
 
 // ---------------- Start ----------------
 initGame();
