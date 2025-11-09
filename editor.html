@@ -2,15 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Blue Snake Ai - Full Debug</title>
+<title>Blue Snake Ai - Full Debug + Heatmap</title>
 <style>
   :root {--bg:#111;--panel:#222;--accent:#00aaff;}
   body {margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--panel);color:#fff;display:flex;flex-direction:row;padding:18px;}
   h1 {margin:6px 0 14px 0;}
-  #leftPanel {width:300px;margin-right:12px;overflow:auto;}
+  #leftPanel {width:320px;margin-right:12px;overflow:auto;}
   #gameArea {position:relative;}
   canvas {background:var(--bg);border:3px solid var(--accent);border-radius:8px;display:block;}
-  .controls {display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;margin-bottom:6px;}
+  .controls {display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:flex-start;margin-bottom:6px;}
   label {font-size:14px;}
   input[type="number"] {width:60px;padding:4px;border-radius:4px;border:none;text-align:center;}
   input[type="range"] {width:180px;}
@@ -169,11 +169,28 @@ function drawEverything(){
   for(const a of apples){ctx.fillStyle='#ff4d4d';ctx.fillRect(a.x*box,a.y*box,box,box);ctx.strokeStyle='#8b0000';ctx.strokeRect(a.x*box+1,a.y*box+1,box-2,box-2);}
   for(let i=snake.length-1;i>=0;i--){const s=snake[i];ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff';ctx.fillRect(s.x*box,s.y*box,box,box);ctx.strokeStyle='#003f66';ctx.strokeRect(s.x*box+1,s.y*box+1,box-2,box-2);}
   debugPaths.forEach(dp=>{let x=snake[0].x,y=snake[0].y;dp.path.forEach(mv=>{const dxy=DIRS[mv];x+=dxy[0];y+=dxy[1];ctx.fillStyle=dp.isChosen?'rgba(0,255,0,0.5)':'rgba(255,255,0,0.2)';ctx.fillRect(x*box,y*box,box,box);});});
+  
   calcPanel.textContent='';
   if(showCalculations){
     ctx.font=`${box/3}px Arial`;ctx.textAlign='center';ctx.textBaseline='middle';
-    debugScores.forEach(dp=>{let x=snake[0].x,y=snake[0].y;dp.path.forEach((mv,i)=>{const dxy=DIRS[mv];x+=dxy[0];y+=dxy[1];const score=dp.pathScores[i];if(score!==undefined)ctx.fillStyle='white',ctx.fillText(score.toFixed(0),x*box+box/2,y*box+box/2);});calcPanel.textContent+=`Apple (${dp.apple.x},${dp.apple.y}): [${dp.path.join(',')}] => Scores: [${dp.pathScores.map(s=>s.toFixed(0)).join(', ')}]\n`;});
+    debugScores.forEach(dp=>{
+      let x=snake[0].x,y=snake[0].y;
+      const scores=dp.pathScores;
+      const minScore=Math.min(...scores),maxScore=Math.max(...scores);
+      dp.path.forEach((mv,i)=>{
+        const dxy=DIRS[mv];x+=dxy[0];y+=dxy[1];
+        const score=scores[i];
+        // Heatmap coloring
+        const t=(score-minScore)/(maxScore-minScore+0.0001);
+        const r=Math.floor(255*(1-t)),g=Math.floor(255*t),b=0;
+        ctx.fillStyle=`rgba(${r},${g},${b},0.6)`;
+        ctx.fillRect(x*box,y*box,box,box);
+        ctx.fillStyle='white';ctx.fillText(score.toFixed(0),x*box+box/2,y*box+box/2);
+      });
+      calcPanel.textContent+=`Apple (${dp.apple.x},${dp.apple.y}): [${dp.path.join(',')}] => Scores: [${dp.pathScores.map(s=>s.toFixed(0)).join(', ')}]\n`;
+    });
   }
+  
   if(editorEnabled){ctx.fillStyle='rgba(255,255,255,0.1)';ctx.fillRect(0,0,canvas.width,canvas.height);}
 }
 
@@ -198,7 +215,7 @@ function safeFallbackMove(){for(const mv of ['UP','RIGHT','DOWN','LEFT'])if(isMo
 function isMoveSafe(mv){const dxy=DIRS[mv];const nx=snake[0].x+dxy[0],ny=snake[0].y+dxy[1];return nx>=0&&nx<gridSize&&ny>=0&&ny<gridSize&&!collidesWithSnake(nx,ny)&&!collidesWithWall(nx,ny);}
 
 // ----- Init -----
-function initGame(){setupCanvas();snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];apples=[];score=0;dir='RIGHT';paused=false;scoreEl.textContent=score;overlay.style.display='none';while(apples.length<appleCount)spawnApple();setSpeed(trainingEnabled?trainingSpeed:parseInt(speedRange.value));if(gameTimer)clearInterval(gameTimer);gameTimer=setInterval(tick,intervalMs);}
+function initGame(){setupCanvas();snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];apples=[];score=0;dir='RIGHT';paused=false;scoreEl.textContent=score;overlay.style.display='none';while(apples.length<appleCount)spawnApple();setSpeed(trainingEnabled?trainingSpeed:parseInt(speedRange.value));if(gameTimer)clearInterval(gameTimer);gameTimer=setInterval(tick,intervalMs);drawEverything();}
 
 initGame();
 </script>
