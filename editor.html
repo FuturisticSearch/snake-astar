@@ -74,7 +74,7 @@ const SND_DEAD = new Audio('/sound/gameover.mp3');
 
 // ----- Config -----
 let box = 32;
-let gridSize, appleCount, snake, apples, dir, gameTimer, intervalMs, score;
+let gridSize, appleCount, snake, apples, walls=[], dir, gameTimer, intervalMs, score;
 let paused = false;
 let editorEnabled = false;
 const DIRS = {UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0]};
@@ -97,10 +97,12 @@ let learningData = getCookie('snakeLearning');
 // ----- Utils -----
 function keyOf(x,y){ return `${x},${y}`; }
 function collidesWithSnake(x,y){ return snake.some(s=>s.x===x && s.y===y); }
+function collidesWithWall(x,y){ return walls.some(w=>w.x===x && w.y===y); }
 function getStateKey(){
   const head = snake[0];
   const appleKey = apples.map(a=>`${a.x},${a.y}`).join('|');
-  return `${head.x},${head.y}|${appleKey}|${snake.length}`;
+  const wallKey = walls.map(w=>`${w.x},${w.y}`).join('|');
+  return `${head.x},${head.y}|${appleKey}|${walls.length}|${snake.length}`;
 }
 
 // ----- Canvas -----
@@ -116,7 +118,7 @@ function spawnApple(){
   let attempts=0;
   while(attempts<2000){
     const x=Math.floor(Math.random()*gridSize), y=Math.floor(Math.random()*gridSize);
-    if(!collidesWithSnake(x,y) && !apples.some(a=>a.x===x&&a.y===y)){
+    if(!collidesWithSnake(x,y) && !apples.some(a=>a.x===x&&a.y===y) && !collidesWithWall(x,y)){
       apples.push({x,y});
       return;
     }
@@ -127,12 +129,13 @@ function spawnApple(){
 // ----- Flood fill -----
 function floodFillCount(sx,sy,snakeBody,limit=1000){
   const visited = new Set(), bodySet = new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
+  const wallSet = new Set(walls.map(w=>keyOf(w.x,w.y)));
   const q=[{x:sx,y:sy}]; let cnt=0;
   while(q.length && cnt<limit){
     const p=q.shift(); const k=keyOf(p.x,p.y);
     if(visited.has(k)) continue;
     if(p.x<0||p.x>=gridSize||p.y<0||p.y>=gridSize) continue;
-    if(bodySet.has(k)) continue;
+    if(bodySet.has(k) || wallSet.has(k)) continue;
     visited.add(k); cnt++;
     q.push({x:p.x+1,y:p.y}); q.push({x:p.x-1,y:p.y});
     q.push({x:p.x,y:p.y+1}); q.push({x:p.x,y:p.y-1});
@@ -143,6 +146,7 @@ function floodFillCount(sx,sy,snakeBody,limit=1000){
 // ----- A* -----
 function aStarPath(start,target,snakeBody){
   const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
+  const wallSet=new Set(walls.map(w=>keyOf(w.x,w.y)));
   const h=(x,y)=>Math.abs(x-target.x)+Math.abs(y-target.y);
   const open=new Map(); const closed=new Set();
   const startK=keyOf(start.x,start.y);
@@ -161,6 +165,7 @@ function aStarPath(start,target,snakeBody){
       if(nx<0||nx>=gridSize||ny<0||ny>=gridSize) continue;
       if(closed.has(nk)) continue;
       if(bodySet.has(nk) && !(nx===target.x&&ny===target.y)) continue;
+      if(wallSet.has(nk)) continue;
       const ng=current.g+1;
       if(!open.has(nk) || ng<open.get(nk).g){
         open.set(nk,{x:nx,y:ny,g:ng,f:ng+h(nx,ny),parent:current,move:name});
@@ -170,7 +175,7 @@ function aStarPath(start,target,snakeBody){
   return [];
 }
 
-// ----- AI Move with Path Visualization -----
+// ----- AI Move -----
 let debugPaths = [];
 function chooseAIMove(){
   debugPaths = [];
@@ -208,7 +213,7 @@ function chooseAIMove(){
   return bestMove || safeFallbackMove();
 }
 function safeFallbackMove(){ for(const mv of ['UP','RIGHT','DOWN','LEFT']) if(isMoveSafe(mv)) return mv; return dir; }
-function isMoveSafe(mv){ const dxy=DIRS[mv]; const nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1]; return nx>=0 && nx<gridSize && ny>=0 && ny<gridSize && !collidesWithSnake(nx,ny); }
+function isMoveSafe(mv){ const dxy=DIRS[mv]; const nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1]; return nx>=0 && nx<gridSize && ny>=0 && ny<gridSize && !collidesWithSnake(nx,ny) && !collidesWithWall(nx,ny); }
 
 // ----- Tick -----
 function tick(){
@@ -216,7 +221,7 @@ function tick(){
   dir = chooseAIMove();
 
   const dxy=DIRS[dir]; const nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1]; const newHead={x:nx,y:ny};
-  if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
+  if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)||collidesWithWall(nx,ny)){
     clearInterval(gameTimer);
     if(!trainingEnabled) SND_DEAD.play().catch(()=>{});
     overlayText.textContent=`You Died! Score: ${score}`; overlay.style.display='flex';
@@ -260,6 +265,9 @@ function drawEverything(){
   // snake
   for(let i=snake.length-1;i>=0;i--){ const s=snake[i]; const px=s.x*box, py=s.y*box; ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff'; ctx.fillRect(px,py,box,box); ctx.strokeStyle='#003f66'; ctx.strokeRect(px+1,py+1,box-2,box-2);}
   
+  // walls
+  for(const w of walls){ const px=w.x*box, py=w.y*box; ctx.fillStyle='#666666'; ctx.fillRect(px,py,box,box); ctx.strokeStyle='#333333'; ctx.strokeRect(px+1,py+1,box-2,box-2);}
+  
   // editor overlay
   if(editorEnabled){
     ctx.fillStyle='rgba(255,255,255,0.1)';
@@ -274,11 +282,10 @@ canvas.addEventListener('click',(e)=>{
   const x = Math.floor((e.clientX-rect.left)/box);
   const y = Math.floor((e.clientY-rect.top)/box);
   
-  // toggle wall / apple
-  const wallKey = keyOf(x,y);
-  let appleIndex = apples.findIndex(a=>a.x===x&&a.y===y);
-  if(appleIndex>=0){ apples.splice(appleIndex,1); }
-  else{ apples.push({x,y}); }
+  // toggle wall
+  const wallIndex = walls.findIndex(w=>w.x===x && w.y===y);
+  if(wallIndex>=0) walls.splice(wallIndex,1);
+  else walls.push({x,y});
 });
 editorBtn.addEventListener('click',()=>editorEnabled=!editorEnabled);
 
@@ -310,6 +317,7 @@ function initGame(){
   setupCanvas();
   snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];
   apples=[]; score=0; dir='RIGHT'; paused=false;
+  walls=[]; // reset walls on new game if needed
   scoreEl.textContent=score; overlay.style.display='none';
   while(apples.length<appleCount) spawnApple();
   setSpeed(trainingEnabled?trainingSpeed:parseInt(speedRange.value));
