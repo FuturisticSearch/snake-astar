@@ -47,6 +47,7 @@
 
 <div id="hud">
   <div>Score: <span id="score">0</span></div>
+  <div>Average Score: <span id="avgScore">0</span></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
@@ -62,6 +63,7 @@ const overlay = document.getElementById('overlay');
 const overlayText = document.getElementById('overlayText');
 const overlayBtn = document.getElementById('overlayBtn');
 const scoreEl = document.getElementById('score');
+const avgScoreEl = document.getElementById('avgScore');
 const speedRange = document.getElementById('speed');
 const speedVal = document.getElementById('speedVal');
 const pauseBtn = document.getElementById('pauseBtn');
@@ -80,6 +82,10 @@ let editorEnabled = false;
 const DIRS = {UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0]};
 let trainingEnabled = false;
 let trainingSpeed = 0.1; // milliseconds per tick
+
+// ----- Average Score -----
+let totalScore = 0;
+let gamesPlayed = 0;
 
 // ----- Cookie helpers -----
 function getCookie(name){
@@ -101,7 +107,6 @@ function collidesWithWall(x,y){ return walls.some(w=>w.x===x && w.y===y); }
 function getStateKey(){
   const head = snake[0];
   const appleKey = apples.map(a=>`${a.x},${a.y}`).join('|');
-  const wallKey = walls.map(w=>`${w.x},${w.y}`).join('|');
   return `${head.x},${head.y}|${appleKey}|${walls.length}|${snake.length}`;
 }
 
@@ -224,6 +229,11 @@ function tick(){
   if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)||collidesWithWall(nx,ny)){
     clearInterval(gameTimer);
     if(!trainingEnabled) SND_DEAD.play().catch(()=>{});
+    
+    totalScore += score;
+    gamesPlayed++;
+    avgScoreEl.textContent = (totalScore / gamesPlayed).toFixed(2);
+    
     overlayText.textContent=`You Died! Score: ${score}`; overlay.style.display='flex';
     if(trainingEnabled) autoRetry();
     return;
@@ -239,7 +249,18 @@ function tick(){
   }
 
   snake.unshift(newHead); if(!ate) snake.pop();
-  if(snake.length>=gridSize*gridSize){ clearInterval(gameTimer); overlayText.textContent='You Won!'; overlay.style.display='flex'; if(trainingEnabled) autoRetry(); return; }
+  if(snake.length>=gridSize*gridSize){
+    clearInterval(gameTimer);
+    
+    totalScore += score;
+    gamesPlayed++;
+    avgScoreEl.textContent = (totalScore / gamesPlayed).toFixed(2);
+    
+    overlayText.textContent='You Won!'; overlay.style.display='flex';
+    if(trainingEnabled) autoRetry(); 
+    return; 
+  }
+
   drawEverything();
 }
 
@@ -317,14 +338,13 @@ function initGame(){
   setupCanvas();
   snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];
   apples=[]; score=0; dir='RIGHT'; paused=false;
-  // walls array is NOT reset here anymore, so walls persist
+  // walls persist across games
   scoreEl.textContent=score; overlay.style.display='none';
   while(apples.length<appleCount) spawnApple();
   setSpeed(trainingEnabled?trainingSpeed:parseInt(speedRange.value));
   if(gameTimer) clearInterval(gameTimer);
   gameTimer=setInterval(tick,intervalMs);
 }
-
 
 initGame();
 </script>
