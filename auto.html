@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Blue Snake AI — Fixed Triple-Check + Speed</title>
+<title>Blue Snake AI — Fixed</title>
 <style>
   :root{--bg:#111;--panel:#222;--accent:#00aaff;}
   body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--panel);color:#fff;display:flex;flex-direction:column;align-items:center;padding:18px;}
@@ -22,25 +22,18 @@
   .legend{display:flex;gap:8px;align-items:center;margin-left:8px}
   .sw{width:16px;height:16px;border-radius:3px;display:inline-block}
   .aStar{background:#2ec4ff} .bfs{background:#00ffcc} .dij{background:#ffd166} .chosen{outline:2px solid #fff}
-  @media (max-width:640px){input[type="range"]{width:140px}}
 </style>
 </head>
 <body>
-<h1>Blue Snake AI — Triple-Check (A*/BFS/Dijkstra)</h1>
+<h1>Blue Snake AI — Fixed</h1>
 
 <div class="controls">
-  <label>Map size: <input id="mapSize" type="number" min="5" max="100" value="15"></label>
-  <label>Apples: <input id="appleCount" type="number" min="1" max="50" value="5"></label>
+  <label>Map size: <input id="mapSize" type="number" min="5" max="50" value="15"></label>
+  <label>Apples: <input id="appleCount" type="number" min="1" max="20" value="5"></label>
   <label><input id="useAI" type="checkbox" checked> Use AI</label>
   <label><input id="showPath" type="checkbox"> Show paths</label>
   <label>Speed: <input id="speed" type="range" min="30" max="300" value="120"> <span id="speedVal">120ms</span></label>
   <button id="playAgain">Play Again</button>
-  <div class="legend">
-    <span class="sw aStar"></span> A*
-    <span class="sw bfs"></span> BFS
-    <span class="sw dij"></span> Dijkstra
-    <span class="sw chosen" style="background:#fff;margin-left:6px"></span> Chosen
-  </div>
 </div>
 
 <div id="gameArea">
@@ -53,6 +46,7 @@
 </div>
 
 <script>
+// ---------------- Config & elements ----------------
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const mapSizeInput = document.getElementById('mapSize');
@@ -70,61 +64,62 @@ const speedVal = document.getElementById('speedVal');
 const SND_EAT = new Audio('/sound/eated.mp3');
 const SND_DEAD = new Audio('/sound/gameover.mp3');
 
-let box=32, gridSize, appleCount, snake, apples, dir, gameTimer, intervalMs=120, score;
+let box = 32;
+let gridSize, appleCount, snake, apples, dir, gameTimer, intervalMs, score;
 const DIRS = { UP:[0,-1],'DOWN':[0,1],'LEFT':[-1,0],'RIGHT':[1,0] };
-let lastAlgPaths=[];
 
-function keyOf(cx,cy){ return `${cx},${cy}`; }
+// ---------------- Utilities ----------------
+function keyOf(x,y){ return `${x},${y}`; }
 
+// ---------------- Resize canvas ----------------
 function setupCanvas(){
-  gridSize = Math.max(5, Math.min(100, parseInt(mapSizeInput.value) || 15));
-  appleCount = Math.max(1, Math.min(50, parseInt(appleInput.value) || 5));
-  const desired = 640;
-  box = Math.max(12, Math.floor(desired / gridSize));
-  canvas.width = canvas.height = box * gridSize;
+  gridSize = Math.max(5, Math.min(50, parseInt(mapSizeInput.value)||15));
+  appleCount = Math.max(1, Math.min(20, parseInt(appleInput.value)||5));
+  box = Math.floor(640/gridSize);
+  canvas.width = canvas.height = box*gridSize;
 }
 
+// ---------------- Game init ----------------
 function initGame(){
   setupCanvas();
-  snake = [ { x: Math.floor(gridSize/2), y: Math.floor(gridSize/2) } ];
+  snake = [{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];
   apples = [];
   score = 0;
-  dir = 'RIGHT';
+  dir='RIGHT';
   scoreEl.textContent = score;
-  overlay.style.display = 'none';
-  while(apples.length < appleCount) spawnApple();
+  overlay.style.display='none';
+  while(apples.length<appleCount) spawnApple();
   setSpeed(parseInt(speedRange.value));
   if(gameTimer) clearInterval(gameTimer);
-  drawEverything(); // <--- ensure initial render
   gameTimer = setInterval(tick, intervalMs);
 }
 
+// ---------------- Speed ----------------
 function setSpeed(ms){
   intervalMs = ms;
-  speedVal.textContent = ms + 'ms';
-  if(gameTimer){
-    clearInterval(gameTimer);
-    gameTimer = setInterval(tick, intervalMs);
-  }
+  speedVal.textContent = ms+'ms';
+  if(gameTimer){ clearInterval(gameTimer); gameTimer=setInterval(tick,intervalMs);}
 }
 
+// ---------------- Spawn apple ----------------
 function spawnApple(){
   let attempts=0;
-  while(attempts<2000){
-    const cx=Math.floor(Math.random()*gridSize), cy=Math.floor(Math.random()*gridSize);
-    if(!snake.some(s=>s.x===cx&&s.y===cy)&&!apples.some(a=>a.x===cx&&a.y===cy)){
-      apples.push({x:cx,y:cy});
+  while(attempts<1000){
+    const x=Math.floor(Math.random()*gridSize);
+    const y=Math.floor(Math.random()*gridSize);
+    if(!snake.some(s=>s.x===x&&s.y===y)&&!apples.some(a=>a.x===x&&a.y===y)){
+      apples.push({x,y});
       return;
     }
     attempts++;
   }
 }
 
-function collidesWithSnake(cx,cy){
-  return snake.some(seg=>seg.x===cx && seg.y===cy);
-}
+// ---------------- Collision ----------------
+function collidesWithSnake(x,y){ return snake.some(s=>s.x===x && s.y===y); }
 
-function floodFillCount(sx, sy, snakeBody, limit=100000){
+// ---------------- Flood fill ----------------
+function floodFillCount(sx,sy,snakeBody,limit=10000){
   const visited=new Set();
   const q=[{x:sx,y:sy}];
   const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
@@ -136,31 +131,137 @@ function floodFillCount(sx, sy, snakeBody, limit=100000){
     if(p.x<0||p.x>=gridSize||p.y<0||p.y>=gridSize) continue;
     if(bodySet.has(k)) continue;
     visited.add(k); cnt++;
-    q.push({x:p.x+1,y:p.y}); q.push({x:p.x-1,y:p.y}); q.push({x:p.x,y:p.y+1}); q.push({x:p.x,y:p.y-1});
+    q.push({x:p.x+1,y:p.y}); q.push({x:p.x-1,y:p.y});
+    q.push({x:p.x,y:p.y+1}); q.push({x:p.x,y:p.y-1});
   }
   return cnt;
 }
 
-// BFS, Dijkstra, A* (same as previous code)...
+// ---------------- BFS ----------------
+function bfsPath(start,target,snakeBody){
+  const queue=[{x:start.x,y:start.y,path:[]}];
+  const visited=new Set([keyOf(start.x,start.y)]);
+  const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
+  while(queue.length){
+    const node=queue.shift();
+    if(node.x===target.x && node.y===target.y) return node.path;
+    for(const [dx,dy,name] of [[0,-1,'UP'],[0,1,'DOWN'],[-1,0,'LEFT'],[1,0,'RIGHT']]){
+      const nx=node.x+dx, ny=node.y+dy;
+      const k=keyOf(nx,ny);
+      if(nx<0||nx>=gridSize||ny<0||ny>=gridSize) continue;
+      if(visited.has(k)) continue;
+      if(bodySet.has(k) && !(nx===target.x&&ny===target.y)) continue;
+      visited.add(k);
+      queue.push({x:nx,y:ny,path:node.path.concat(name)});
+    }
+  }
+  return [];
+}
 
-// ---------------- chooseAIMove, safeFallbackMove, isMoveSafe, tick, drawEverything, drawPath ---
-// same as your last version with AI triple-check, path visualization, and overlays
+// ---------------- A* ----------------
+function aStarPath(start,target,snakeBody){
+  const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
+  const open=new Map(); const closed=new Set();
+  function h(x,y){ return Math.abs(x-target.x)+Math.abs(y-target.y); }
+  const startK=keyOf(start.x,start.y);
+  open.set(startK,{x:start.x,y:start.y,g:0,f:h(start.x,start.y),parent:null,move:null});
+  while(open.size){
+    let currentK, current;
+    for(const [k,n] of open){ if(!current || n.f<current.f){current=n; currentK=k;} }
+    open.delete(currentK);
+    if(current.x===target.x && current.y===target.y){
+      const path=[]; let node=current;
+      while(node.parent){ path.unshift(node.move); node=node.parent; }
+      return path;
+    }
+    closed.add(currentK);
+    for(const [dx,dy,name] of [[0,-1,'UP'],[0,1,'DOWN'],[-1,0,'LEFT'],[1,0,'RIGHT']]){
+      const nx=current.x+dx, ny=current.y+dy; const nk=keyOf(nx,ny);
+      if(nx<0||nx>=gridSize||ny<0||ny>=gridSize) continue;
+      if(closed.has(nk)) continue;
+      if(bodySet.has(nk) && !(nx===target.x&&ny===target.y)) continue;
+      const ng=current.g+1;
+      if(!open.has(nk) || ng<open.get(nk).g) open.set(nk,{x:nx,y:ny,g:ng,f:ng+h(nx,ny),parent:current,move:name});
+    }
+  }
+  return [];
+}
+
+// ---------------- AI ----------------
+function chooseAIMove(){
+  if(!useAICheck.checked) return dir;
+  const start={x:snake[0].x,y:snake[0].y};
+  let bestMove=null, bestScore=-Infinity;
+  for(const apple of apples){
+    const path=aStarPath(start,apple,snake);
+    if(!path.length) continue;
+    let simSnake=snake.map(s=>({x:s.x,y:s.y}));
+    let simHead={x:simSnake[0].x,y:simSnake[0].y};
+    for(const mv of path){
+      simHead={x:simHead.x+DIRS[mv][0],y:simHead.y+DIRS[mv][1]};
+      simSnake.unshift({x:simHead.x,y:simHead.y}); simSnake.pop();
+    }
+    const free=floodFillCount(simHead.x,simHead.y,simSnake,2000);
+    if(free>bestScore){bestScore=free; bestMove=path[0];}
+  }
+  return bestMove || safeFallbackMove();
+}
+
+function safeFallbackMove(){
+  for(const mv of ['UP','RIGHT','DOWN','LEFT']) if(isMoveSafe(mv)) return mv;
+  return dir;
+}
+
+function isMoveSafe(mv){
+  const dxy=DIRS[mv]; const nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1];
+  if(nx<0||nx>=gridSize||ny<0||ny>=gridSize) return false;
+  if(collidesWithSnake(nx,ny)) return false;
+  return true;
+}
+
+// ---------------- Game tick ----------------
+let lastAlgPaths=[];
+function tick(){
+  if(useAICheck.checked) dir=chooseAIMove();
+  const dxy=DIRS[dir];
+  const nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1];
+  if(nx<0||nx>=gridSize||ny<0||ny>=gridSize || collidesWithSnake(nx,ny)){
+    clearInterval(gameTimer); SND_DEAD.play().catch(()=>{});
+    overlayText.textContent='You Died!'; overlay.style.display='flex'; return;
+  }
+  let ate=false;
+  for(let i=0;i<apples.length;i++){
+    if(apples[i].x===nx && apples[i].y===ny){ ate=true; score++; scoreEl.textContent=score; SND_EAT.play().catch(()=>{}); apples.splice(i,1); spawnApple(); break; }
+  }
+  snake.unshift({x:nx,y:ny}); if(!ate) snake.pop();
+  if(snake.length>=gridSize*gridSize){ clearInterval(gameTimer); overlayText.textContent='You Won!'; overlay.style.display='flex'; return; }
+  drawEverything();
+}
+
+// ---------------- Drawing ----------------
+function drawEverything(){
+  ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  for(const a of apples){ ctx.fillStyle='#ff4d4d'; ctx.fillRect(a.x*box,a.y*box,box,box); ctx.strokeStyle='#8b0000'; ctx.strokeRect(a.x*box+1,a.y*box+1,box-2,box-2);}
+  for(let i=snake.length-1;i>=0;i--){
+    const s=snake[i]; ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff'; ctx.fillRect(s.x*box,s.y*box,box,box); ctx.strokeStyle='#003f66'; ctx.strokeRect(s.x*box+1,s.y*box+1,box-2,box-2);
+  }
+}
 
 // ---------------- Manual controls ----------------
 document.addEventListener('keydown',(e)=>{
   if(useAICheck.checked) return;
-  if(e.key==='ArrowUp'&&dir!=='DOWN') dir='UP';
-  if(e.key==='ArrowDown'&&dir!=='UP') dir='DOWN';
-  if(e.key==='ArrowLeft'&&dir!=='RIGHT') dir='LEFT';
-  if(e.key==='ArrowRight'&&dir!=='LEFT') dir='RIGHT';
+  if(e.key==='ArrowUp' && dir!=='DOWN') dir='UP';
+  if(e.key==='ArrowDown' && dir!=='UP') dir='DOWN';
+  if(e.key==='ArrowLeft' && dir!=='RIGHT') dir='LEFT';
+  if(e.key==='ArrowRight' && dir!=='LEFT') dir='RIGHT';
 });
 
 // ---------------- UI bindings ----------------
-playAgainBtn.addEventListener('click', ()=>initGame());
-overlayBtn.addEventListener('click', ()=>initGame());
-speedRange.addEventListener('input', ()=>setSpeed(parseInt(speedRange.value)));
-mapSizeInput.addEventListener('change', ()=>initGame());
-appleInput.addEventListener('change', ()=>initGame());
+playAgainBtn.addEventListener('click',()=>initGame());
+overlayBtn.addEventListener('click',()=>initGame());
+speedRange.addEventListener('input',()=>setSpeed(parseInt(speedRange.value)));
+mapSizeInput.addEventListener('change',()=>initGame());
+appleInput.addEventListener('change',()=>initGame());
 
 // ---------------- Start ----------------
 initGame();
