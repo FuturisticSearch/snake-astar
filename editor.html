@@ -38,7 +38,7 @@
   <button id="pauseBtn">Pause</button>
   <button id="trainBtn">Train</button>
   <button id="editorBtn">Toggle Editor</button>
-  <button id="showCalcBtn">Show Calculations</button>
+  <button id="showCalcBtn">Show AI Calculations</button>
 </div>
 
 <div id="gameArea">
@@ -84,23 +84,23 @@ let editorEnabled = false;
 let showCalculations = false;
 const DIRS = {UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0]};
 let trainingEnabled = false;
-let trainingSpeed = 0.1; // milliseconds per tick
+let trainingSpeed = 0.1;
 
 // ----- Average Score -----
 let totalScore = 0;
 let gamesPlayed = 0;
 
-// ----- Cookie helpers -----
+// ----- Cookies -----
 function getCookie(name){
   const v = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
   return v ? JSON.parse(LZString.decompressFromBase64(decodeURIComponent(v[2]))) : {};
 }
-function setCookie(name, value){
+function setCookie(name,value){
   const compressed = LZString.compressToBase64(JSON.stringify(value));
   document.cookie = `${name}=${encodeURIComponent(compressed)}; path=/; max-age=${60*60*24*365}`;
 }
 
-// ----- Load learning data -----
+// ----- Learning data -----
 let learningData = getCookie('snakeLearning');
 
 // ----- Utils -----
@@ -113,7 +113,7 @@ function getStateKey(){
   return `${head.x},${head.y}|${appleKey}|${walls.length}|${snake.length}`;
 }
 
-// ----- Canvas -----
+// ----- Canvas setup -----
 function setupCanvas(){
   gridSize = Math.max(5, Math.min(50, parseInt(mapSizeInput.value)||15));
   appleCount = Math.max(1, Math.min(20, parseInt(appleInput.value)||5));
@@ -183,7 +183,7 @@ function aStarPath(start,target,snakeBody){
   return [];
 }
 
-// ----- AI Move -----
+// ----- AI -----
 let debugPaths = [];
 let debugScores = [];
 function chooseAIMove(){
@@ -202,26 +202,28 @@ function chooseAIMove(){
 
     // simulate
     let simSnake=snake.map(s=>({x:s.x,y:s.y})), simHead={x:simSnake[0].x,y:simSnake[0].y};
+    let pathScores=[];
     path.forEach((mv,i)=>{
       if(i>50) return;
       const dxy=DIRS[mv];
       simHead={x:simHead.x+dxy[0],y:simHead.y+dxy[1]};
       simSnake.unshift({...simHead});
       simSnake.pop();
+      // record step score
+      const free=floodFillCount(simHead.x,simHead.y,simSnake,2000);
+      pathScores.push(free);
     });
 
-    const free=floodFillCount(simHead.x,simHead.y,simSnake,2000);
-    let scoreVal=(mode==='greedy'?1000-free:free);
-    debugPaths.push({path, apple, scoreVal});
-    debugScores.push({path, apple, scoreVal});
+    const finalScore = pathScores[pathScores.length-1] || 0;
+    debugPaths.push({path, apple, isChosen:false}); // original visual
+    debugScores.push({path, apple, pathScores});   // AI calculation overlay
 
-    if(scoreVal>bestScore && !forbiddenMoves.includes(path[0])){
-      bestScore=scoreVal; bestMove=path[0]; bestPath = path;
+    if((mode==='greedy'?1000-finalScore:finalScore)>bestScore && !forbiddenMoves.includes(path[0])){
+      bestScore=(mode==='greedy'?1000-finalScore:finalScore); bestMove=path[0]; bestPath=path;
     }
   }
 
   debugPaths.forEach(p=>p.isChosen = (p.path === bestPath));
-
   if(!bestMove && trainingEnabled){
     if(!learningData[stateKey]) learningData[stateKey]=[];
     learningData[stateKey].push(dir);
@@ -244,8 +246,9 @@ function tick(){
     gamesPlayed++;
     avgScoreEl.textContent = (totalScore / gamesPlayed).toFixed(2);
     
-    overlayText.textContent=`You Died! Score: ${score}`; overlay.style.display='flex';
-    if(trainingEnabled) autoRetry();
+    overlayText.textContent=`You Died! Score: ${score}`;
+    overlay.style.display='flex';
+    if(trainingEnabled) setTimeout(initGame,50); // auto-restart fix
     return;
   }
 
@@ -266,9 +269,10 @@ function tick(){
     gamesPlayed++;
     avgScoreEl.textContent = (totalScore / gamesPlayed).toFixed(2);
     
-    overlayText.textContent='You Won!'; overlay.style.display='flex';
-    if(trainingEnabled) autoRetry(); 
-    return; 
+    overlayText.textContent='You Won!';
+    overlay.style.display='flex';
+    if(trainingEnabled) setTimeout(initGame,50); // auto-restart fix
+    return;
   }
 
   drawEverything();
@@ -278,34 +282,37 @@ function tick(){
 function drawEverything(){
   ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // draw walls
+  // walls
   for(const w of walls){ const px=w.x*box, py=w.y*box; ctx.fillStyle='#666'; ctx.fillRect(px,py,box,box); ctx.strokeStyle='#333'; ctx.strokeRect(px+1,py+1,box-2,box-2);}
-
-  // draw apples
+  // apples
   for(const a of apples){ const px=a.x*box, py=a.y*box; ctx.fillStyle='#ff4d4d'; ctx.fillRect(px,py,box,box); ctx.strokeStyle='#8b0000'; ctx.strokeRect(px+1,py+1,box-2,box-2);}
-
-  // draw snake
+  // snake
   for(let i=snake.length-1;i>=0;i--){ const s=snake[i]; const px=s.x*box, py=s.y*box; ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff'; ctx.fillRect(px,py,box,box); ctx.strokeStyle='#003f66'; ctx.strokeRect(px+1,py+1,box-2,box-2);}
 
-  // draw AI paths with calculations if enabled
+  // original path visualization
+  debugPaths.forEach(dp=>{
+    let x=snake[0].x, y=snake[0].y;
+    dp.path.forEach(mv=>{
+      const dxy=DIRS[mv]; x+=dxy[0]; y+=dxy[1];
+      ctx.fillStyle = dp.isChosen?'rgba(0,255,0,0.5)':'rgba(255,255,0,0.2)';
+      ctx.fillRect(x*box,y*box,box,box);
+    });
+  });
+
+  // AI calculation overlay
   if(showCalculations){
-    ctx.font = `${box/2}px Arial`;
-    ctx.textAlign='center';
-    ctx.textBaseline='middle';
-    debugPaths.forEach(p=>{
-      let x=snake[0].x+0.5, y=snake[0].y+0.5;
-      p.path.forEach(mv=>{
+    ctx.font = `${box/3}px Arial`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    debugScores.forEach(dp=>{
+      let x=snake[0].x, y=snake[0].y;
+      dp.path.forEach((mv,i)=>{
         const dxy=DIRS[mv]; x+=dxy[0]; y+=dxy[1];
-        ctx.strokeStyle=p.isChosen?'rgba(0,255,0,0.7)':'rgba(255,255,0,0.3)';
-        ctx.beginPath();
-        ctx.moveTo((x-0.5)*box+box/2,(y-0.5)*box+box/2);
-        ctx.lineTo(x*box+box/2,y*box+box/2);
-        ctx.stroke();
+        const score = dp.pathScores[i];
+        if(score!==undefined){
+          ctx.fillStyle='white';
+          ctx.fillText(score.toFixed(0), x*box+box/2, y*box+box/2);
+        }
       });
-      const endX = p.apple.x*box+box/2;
-      const endY = p.apple.y*box+box/2;
-      ctx.fillStyle='white';
-      ctx.fillText(p.scoreVal.toFixed(0), endX, endY);
     });
   }
 
@@ -323,20 +330,13 @@ canvas.addEventListener('click',(e)=>{
   const x = Math.floor((e.clientX-rect.left)/box);
   const y = Math.floor((e.clientY-rect.top)/box);
   
-  // toggle wall
   const wallIndex = walls.findIndex(w=>w.x===x && w.y===y);
   if(wallIndex>=0) walls.splice(wallIndex,1);
   else walls.push({x,y});
 });
+
 editorBtn.addEventListener('click',()=>editorEnabled=!editorEnabled);
 showCalcBtn.addEventListener('click',()=>showCalculations=!showCalculations);
-
-// ----- Auto retry -----
-function autoRetry(){
-  if(trainingEnabled){
-    initGame(); intervalMs=trainingSpeed; clearInterval(gameTimer); gameTimer=setInterval(tick,intervalMs);
-  }
-}
 
 // ----- Controls -----
 document.addEventListener('keydown',(e)=>{
@@ -349,17 +349,20 @@ playAgainBtn.addEventListener('click',()=>initGame());
 overlayBtn.addEventListener('click',()=>initGame());
 speedRange.addEventListener('input',()=>setSpeed(parseInt(speedRange.value)));
 pauseBtn.addEventListener('click',()=>paused=!paused);
-trainBtn.addEventListener('click',()=>{ trainingEnabled=!trainingEnabled; if(trainingEnabled) autoRetry(); });
+trainBtn.addEventListener('click',()=>{ trainingEnabled=!trainingEnabled; if(trainingEnabled) setTimeout(initGame,50); });
 
 // ----- Speed -----
 function setSpeed(ms){ intervalMs=ms; speedVal.textContent=ms+'ms'; if(gameTimer){ clearInterval(gameTimer); gameTimer=setInterval(tick,intervalMs); }}
+
+// ----- Fallback -----
+function safeFallbackMove(){ for(const mv of ['UP','RIGHT','DOWN','LEFT']) if(isMoveSafe(mv)) return mv; return dir; }
+function isMoveSafe(mv){ const dxy=DIRS[mv]; const nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1]; return nx>=0 && nx<gridSize && ny>=0 && ny<gridSize && !collidesWithSnake(nx,ny) && !collidesWithWall(nx,ny); }
 
 // ----- Init -----
 function initGame(){
   setupCanvas();
   snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];
   apples=[]; score=0; dir='RIGHT'; paused=false;
-  // walls persist across games
   scoreEl.textContent=score; overlay.style.display='none';
   while(apples.length<appleCount) spawnApple();
   setSpeed(trainingEnabled?trainingSpeed:parseInt(speedRange.value));
