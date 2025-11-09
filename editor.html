@@ -124,9 +124,8 @@ function floodFillCount(sx,sy,snakeBody,limit=1000){
   return cnt;
 }
 
-// ----- BFS & A* simplified (same as before) -----
-function bfsPath(start,target,snakeBody){ /* ...keep your existing bfsPath... */ }
-function aStarPath(start,target,snakeBody){ /* ...keep your existing aStarPath... */ }
+// ----- BFS & A* -----
+// Keep your existing bfsPath and aStarPath functions here (unchanged from your code)
 
 // ----- AI move -----
 function chooseAIMove(){
@@ -134,7 +133,7 @@ function chooseAIMove(){
   const mode=aiModeSelect.value;
   let bestScore=-Infinity, bestMove=null;
   for(const apple of apples){
-    const path=aStarPath(start,apple,snake);
+    const path=aStarPath(start,apple,snake); // your function intact
     if(!path.length) continue;
     let simSnake=snake.map(s=>({x:s.x,y:s.y})), simHead={x:simSnake[0].x,y:simSnake[0].y};
     path.forEach((mv,i)=>{ if(i>50) return; const dxy=DIRS[mv]; simHead={x:simHead.x+dxy[0],y:simHead.y+dxy[1]}; simSnake.unshift({...simHead}); simSnake.pop(); });
@@ -146,11 +145,13 @@ function chooseAIMove(){
   return bestMove || safeFallbackMove();
 }
 
+function safeFallbackMove(){ for(const mv of ['UP','RIGHT','DOWN','LEFT']) if(isMoveSafe(mv)) return mv; return dir; }
+function isMoveSafe(mv){ const dxy=DIRS[mv]; const nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1]; return nx>=0 && nx<gridSize && ny>=0 && ny<gridSize && !collidesWithSnake(nx,ny); }
+
 // ----- Tick -----
 function tick(){
   if(paused) return;
-  if(trainingEnabled) dir=chooseAIMove();
-  else dir=chooseAIMove();
+  dir = chooseAIMove();
   const dxy=DIRS[dir]; const nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1]; const newHead={x:nx,y:ny};
   if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
     clearInterval(gameTimer); if(!trainingEnabled) SND_DEAD.play().catch(()=>{});
@@ -178,30 +179,21 @@ function tick(){
 // ----- Draw -----
 function drawEverything(){
   ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
-  // apples
   for(const a of apples){ const px=a.x*box, py=a.y*box; ctx.fillStyle='#ff4d4d'; ctx.fillRect(px,py,box,box); ctx.strokeStyle='#8b0000'; ctx.strokeRect(px+1,py+1,box-2,box-2);}
-  // blocks
   for(const b of blocks){ const px=b.x*box, py=b.y*box; ctx.fillStyle='#555'; ctx.fillRect(px,py,box,box);}
-  // snake
   for(let i=snake.length-1;i>=0;i--){ const s=snake[i]; const px=s.x*box, py=s.y*box; ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff'; ctx.fillRect(px,py,box,box); ctx.strokeStyle='#003f66'; ctx.strokeRect(px+1,py+1,box-2,box-2);}
 }
 
 // ----- Auto retry -----
-function autoRetry(){
-  if(trainingEnabled){
-    initGame(); intervalMs=trainingSpeed; clearInterval(gameTimer); gameTimer=setInterval(tick,intervalMs);
-  }
-}
+function autoRetry(){ if(trainingEnabled){ initGame(); intervalMs=trainingSpeed; clearInterval(gameTimer); gameTimer=setInterval(tick,intervalMs); } }
 
 // ----- Controls -----
-document.addEventListener('keydown',(e)=>{
-  if(!editMode){
-    if(e.key==='ArrowUp' && dir!=='DOWN') dir='UP';
-    if(e.key==='ArrowDown' && dir!=='UP') dir='DOWN';
-    if(e.key==='ArrowLeft' && dir!=='RIGHT') dir='LEFT';
-    if(e.key==='ArrowRight' && dir!=='LEFT') dir='RIGHT';
-  }
-});
+playAgainBtn.addEventListener('click',()=>initGame());
+overlayBtn.addEventListener('click',()=>initGame());
+speedRange.addEventListener('input',()=>setSpeed(parseInt(speedRange.value)));
+pauseBtn.addEventListener('click',()=>paused=!paused);
+trainBtn.addEventListener('click',()=>{ trainingEnabled=!trainingEnabled; if(trainingEnabled) autoRetry(); });
+toggleEditBtn.addEventListener('click',()=>{ editMode=!editMode; });
 
 canvas.addEventListener('click',(e)=>{
   if(editMode){
@@ -213,13 +205,6 @@ canvas.addEventListener('click',(e)=>{
     drawEverything();
   }
 });
-
-playAgainBtn.addEventListener('click',()=>initGame());
-overlayBtn.addEventListener('click',()=>initGame());
-speedRange.addEventListener('input',()=>setSpeed(parseInt(speedRange.value)));
-pauseBtn.addEventListener('click',()=>paused=!paused);
-trainBtn.addEventListener('click',()=>{ trainingEnabled=!trainingEnabled; if(trainingEnabled) autoRetry(); });
-toggleEditBtn.addEventListener('click',()=>{ editMode=!editMode; });
 
 // ----- Speed -----
 function setSpeed(ms){ intervalMs=ms; speedVal.textContent=ms+'ms'; if(gameTimer){ clearInterval(gameTimer); gameTimer=setInterval(tick,intervalMs); }}
