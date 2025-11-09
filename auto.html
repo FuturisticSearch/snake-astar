@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Blue Snake AI</title>
+<title>Blue Snake</title>
 <style>
   :root {--bg:#111;--panel:#222;--accent:#00aaff;}
   body {margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--panel);color:#fff;display:flex;flex-direction:column;align-items:center;padding:18px;}
@@ -22,7 +22,7 @@
 </style>
 </head>
 <body>
-<h1>Blue Snake</h1>
+<h1>Blue Snake AI</h1>
 
 <div class="controls">
   <label>Map size: <input id="mapSize" type="number" min="5" max="50" value="15"></label>
@@ -48,6 +48,7 @@
   <div>Score: <span id="score">0</span></div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
 <script>
 // ----- Elements -----
 const canvas = document.getElementById('canvas');
@@ -75,9 +76,20 @@ let gridSize, appleCount, snake, apples, dir, gameTimer, intervalMs, score;
 let paused = false;
 const DIRS = {UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0]};
 let trainingEnabled = false;
-let trainingSpeed = 10; // extremely fast
-// Learning data: maps simplified states to unsafe moves
-let learningData = JSON.parse(localStorage.getItem('snakeLearning') || '{}');
+let trainingSpeed = 1; // milliseconds per tick for ultra-fast training
+
+// ----- Cookie helpers -----
+function getCookie(name){
+  const v = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+  return v ? JSON.parse(LZString.decompressFromBase64(decodeURIComponent(v[2]))) : {};
+}
+function setCookie(name, value){
+  const compressed = LZString.compressToBase64(JSON.stringify(value));
+  document.cookie = `${name}=${encodeURIComponent(compressed)}; path=/; max-age=${60*60*24*365}`;
+}
+
+// ----- Load learning data -----
+let learningData = getCookie('snakeLearning');
 
 // ----- Utils -----
 function keyOf(x,y){ return `${x},${y}`; }
@@ -85,7 +97,6 @@ function collidesWithSnake(x,y){ return snake.some(s=>s.x===x && s.y===y); }
 function getStateKey(){
   const head = snake[0];
   const appleKey = apples.map(a=>`${a.x},${a.y}`).join('|');
-  // simplified pattern: head position and nearby obstacles
   return `${head.x},${head.y}|${appleKey}|${snake.length}`;
 }
 
@@ -126,7 +137,7 @@ function floodFillCount(sx,sy,snakeBody,limit=1000){
   return cnt;
 }
 
-// ----- BFS / A* -----
+// ----- A* -----
 function aStarPath(start,target,snakeBody){
   const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
   const h=(x,y)=>Math.abs(x-target.x)+Math.abs(y-target.y);
@@ -179,7 +190,7 @@ function chooseAIMove(){
   if(!bestMove && trainingEnabled){
     if(!learningData[stateKey]) learningData[stateKey]=[];
     learningData[stateKey].push(dir);
-    localStorage.setItem('snakeLearning',JSON.stringify(learningData));
+    setCookie('snakeLearning', learningData);
   }
 
   return bestMove || safeFallbackMove();
@@ -192,9 +203,11 @@ function isMoveSafe(mv){ const dxy=DIRS[mv]; const nx=snake[0].x+dxy[0], ny=snak
 function tick(){
   if(paused) return;
   dir = chooseAIMove();
+
   const dxy=DIRS[dir]; const nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1]; const newHead={x:nx,y:ny};
   if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
-    clearInterval(gameTimer); SND_DEAD.play().catch(()=>{});
+    clearInterval(gameTimer);
+    if(!trainingEnabled) SND_DEAD.play().catch(()=>{});
     overlayText.textContent=`You Died! Score: ${score}`; overlay.style.display='flex';
     if(trainingEnabled) autoRetry();
     return;
@@ -204,7 +217,7 @@ function tick(){
   for(let i=0;i<apples.length;i++){
     if(apples[i].x===nx && apples[i].y===ny){
       ate=true; score++; scoreEl.textContent=score;
-      SND_EAT.play().catch(()=>{});
+      if(!trainingEnabled) SND_EAT.play().catch(()=>{});
       apples.splice(i,1); spawnApple(); break;
     }
   }
