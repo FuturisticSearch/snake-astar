@@ -2,38 +2,45 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Blue Snake Ai - Full Debug + Heatmap</title>
+<title>Blue Snake Ai - Mobile Optimized</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-  :root {--bg:#111;--panel:#222;--accent:#00aaff;}
-  body {margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--panel);color:#fff;display:flex;flex-direction:row;padding:18px;}
-  h1 {margin:6px 0 14px 0;}
-  #leftPanel {width:320px;margin-right:12px;overflow:auto;}
-  #gameArea {position:relative;}
-  canvas {background:var(--bg);border:3px solid var(--accent);border-radius:8px;display:block;}
-  .controls {display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:flex-start;margin-bottom:6px;}
-  label {font-size:14px;}
-  input[type="number"] {width:60px;padding:4px;border-radius:4px;border:none;text-align:center;}
-  input[type="range"] {width:180px;}
-  button {background:var(--accent);color:#04111a;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;}
-  button:hover {opacity:.95;}
-  #overlay {position:absolute;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;display:none;}
-  #overlayText {font-size:28px;margin-bottom:12px;}
-  #calcPanel {font-size:12px;line-height:1.2;white-space:pre;}
+:root {--bg:#111;--panel:#222;--accent:#00aaff;}
+body {margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--panel);color:#fff;display:flex;flex-direction:column;align-items:center;padding:12px;}
+h1 {margin:6px 0 14px 0;text-align:center;}
+#mainWrapper {display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:12px;width:100%;max-width:1000px;}
+#leftPanel {width:320px;min-width:280px;overflow:auto;flex-shrink:0;}
+#gameArea {position:relative;flex-shrink:0;}
+canvas {background:var(--bg);border:3px solid var(--accent);border-radius:8px;display:block;width:100%;height:auto;max-width:640px;}
+.controls {display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-start;margin-bottom:6px;}
+label {font-size:14px;}
+input[type="number"] {width:60px;padding:4px;border-radius:4px;border:none;text-align:center;}
+input[type="range"] {width:140px;}
+button {background:var(--accent);color:#04111a;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:14px;}
+button:hover {opacity:.95;}
+#overlay {position:absolute;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;display:none;}
+#overlayText {font-size:28px;margin-bottom:12px;text-align:center;}
+#calcPanel {font-size:12px;line-height:1.2;white-space:pre;max-height:300px;overflow:auto;}
+#hud {display:flex;gap:12px;flex-wrap:wrap;margin-bottom:6px;}
+@media(max-width:800px){#mainWrapper{flex-direction:column;align-items:center;}#leftPanel{width:90%;max-width:400px;}canvas{max-width:90%;}}
 </style>
 </head>
 <body>
+<h1>Blue Snake AI Debug</h1>
+<div id="mainWrapper">
 <div id="leftPanel">
-  <h1>Blue Snake AI Debug</h1>
   <div class="controls">
-    <label>Map size: <input id="mapSize" type="number" min="5" max="50" value="15"></label>
+    <label>Map: <input id="mapSize" type="number" min="5" max="50" value="15"></label>
     <label>Apples: <input id="appleCount" type="number" min="1" max="20" value="5"></label>
+  </div>
+  <div class="controls">
     <label>Mode:
       <select id="aiMode">
         <option value="safe">Safe</option>
         <option value="greedy">Greedy</option>
       </select>
     </label>
-    <label>Speed: <input id="speed" type="range" min="30" max="300" value="120"> <span id="speedVal">120ms</span></label>
+    <label>Speed: <input id="speed" type="range" min="30" max="300" value="120"><span id="speedVal">120ms</span></label>
   </div>
   <div class="controls">
     <button id="playAgain">Play Again</button>
@@ -52,6 +59,7 @@
 <div id="gameArea">
   <canvas id="canvas"></canvas>
   <div id="overlay"><div id="overlayText"></div><button id="overlayBtn">Play Again</button></div>
+</div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
@@ -108,7 +116,7 @@ function spawnApple(){let attempts=0;while(attempts<2000){const x=Math.floor(Mat
 // ----- Flood Fill -----
 function floodFillCount(sx,sy,snakeBody,limit=1000){const visited=new Set(),bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y))),wallSet=new Set(walls.map(w=>keyOf(w.x,w.y)));const q=[{x:sx,y:sy}];let cnt=0;while(q.length&&cnt<limit){const p=q.shift(),k=keyOf(p.x,p.y);if(visited.has(k))continue;if(p.x<0||p.x>=gridSize||p.y<0||p.y>=gridSize)continue;if(bodySet.has(k)||wallSet.has(k))continue;visited.add(k);cnt++;q.push({x:p.x+1,y:p.y});q.push({x:p.x-1,y:p.y});q.push({x:p.x,y:p.y+1});q.push({x:p.x,y:p.y-1});}return cnt;}
 
-// ----- A* -----
+// ----- A* Pathfinding -----
 function aStarPath(start,target,snakeBody){const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y))),wallSet=new Set(walls.map(w=>keyOf(w.x,w.y)));const h=(x,y)=>Math.abs(x-target.x)+Math.abs(y-target.y);const open=new Map(),closed=new Set();const startK=keyOf(start.x,start.y);open.set(startK,{x:start.x,y:start.y,g:0,f:h(start.x,start.y),parent:null,move:null});while(open.size){let current,currentK;for(const [k,n] of open){if(!current||n.f<current.f){current=n;currentK=k;}}open.delete(currentK);closed.add(currentK);if(current.x===target.x&&current.y===target.y){const out=[];let node=current;while(node.parent){out.unshift(node.move);node=node.parent;}return out;}for(const [dx,dy,name] of [[0,-1,'UP'],[0,1,'DOWN'],[-1,0,'LEFT'],[1,0,'RIGHT']]){const nx=current.x+dx,ny=current.y+dy,nk=keyOf(nx,ny);if(nx<0||nx>=gridSize||ny<0||ny>=gridSize)continue;if(closed.has(nk))continue;if(bodySet.has(nk)&&!(nx===target.x&&ny===target.y))continue;if(wallSet.has(nk))continue;const ng=current.g+1;if(!open.has(nk)||ng<open.get(nk).g){open.set(nk,{x:nx,y:ny,g:ng,f:ng+h(nx,ny),parent:current,move:name});}}}return []}
 
 // ----- AI -----
@@ -149,8 +157,8 @@ function tick(){
   const dxy=DIRS[dir]; const nx=snake[0].x+dxy[0],ny=snake[0].y+dxy[1]; const newHead={x:nx,y:ny};
   if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)||collidesWithWall(nx,ny)){
     clearInterval(gameTimer);
-    if(!trainingEnabled)SND_DEAD.play().catch(()=>{});
     totalScore+=score; gamesPlayed++; avgScoreEl.textContent=(totalScore/gamesPlayed).toFixed(2);
+    if(!trainingEnabled)SND_DEAD.play().catch(()=>{});
     overlayText.textContent=`You Died! Score: ${score}`; overlay.style.display='flex';
     if(trainingEnabled)setTimeout(initGame,50);
     return;
@@ -164,12 +172,11 @@ function tick(){
 
 // ----- Draw -----
 function drawEverything(){
-  ctx.fillStyle='#111';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
   for(const w of walls){ctx.fillStyle='#666';ctx.fillRect(w.x*box,w.y*box,box,box);ctx.strokeStyle='#333';ctx.strokeRect(w.x*box+1,w.y*box+1,box-2,box-2);}
   for(const a of apples){ctx.fillStyle='#ff4d4d';ctx.fillRect(a.x*box,a.y*box,box,box);ctx.strokeStyle='#8b0000';ctx.strokeRect(a.x*box+1,a.y*box+1,box-2,box-2);}
   for(let i=snake.length-1;i>=0;i--){const s=snake[i];ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff';ctx.fillRect(s.x*box,s.y*box,box,box);ctx.strokeStyle='#003f66';ctx.strokeRect(s.x*box+1,s.y*box+1,box-2,box-2);}
   debugPaths.forEach(dp=>{let x=snake[0].x,y=snake[0].y;dp.path.forEach(mv=>{const dxy=DIRS[mv];x+=dxy[0];y+=dxy[1];ctx.fillStyle=dp.isChosen?'rgba(0,255,0,0.5)':'rgba(255,255,0,0.2)';ctx.fillRect(x*box,y*box,box,box);});});
-  
   calcPanel.textContent='';
   if(showCalculations){
     ctx.font=`${box/3}px Arial`;ctx.textAlign='center';ctx.textBaseline='middle';
@@ -180,7 +187,6 @@ function drawEverything(){
       dp.path.forEach((mv,i)=>{
         const dxy=DIRS[mv];x+=dxy[0];y+=dxy[1];
         const score=scores[i];
-        // Heatmap coloring
         const t=(score-minScore)/(maxScore-minScore+0.0001);
         const r=Math.floor(255*(1-t)),g=Math.floor(255*t),b=0;
         ctx.fillStyle=`rgba(${r},${g},${b},0.6)`;
@@ -190,7 +196,6 @@ function drawEverything(){
       calcPanel.textContent+=`Apple (${dp.apple.x},${dp.apple.y}): [${dp.path.join(',')}] => Scores: [${dp.pathScores.map(s=>s.toFixed(0)).join(', ')}]\n`;
     });
   }
-  
   if(editorEnabled){ctx.fillStyle='rgba(255,255,255,0.1)';ctx.fillRect(0,0,canvas.width,canvas.height);}
 }
 
@@ -210,12 +215,13 @@ showCalcBtn.addEventListener('click',()=>showCalculations=!showCalculations);
 // ----- Speed -----
 function setSpeed(ms){intervalMs=ms;speedVal.textContent=ms+'ms';if(gameTimer){clearInterval(gameTimer);gameTimer=setInterval(tick,intervalMs);}}
 
-// ----- Fallback -----
-function safeFallbackMove(){for(const mv of ['UP','RIGHT','DOWN','LEFT'])if(isMoveSafe(mv))return mv;return dir;}
-function isMoveSafe(mv){const dxy=DIRS[mv];const nx=snake[0].x+dxy[0],ny=snake[0].y+dxy[1];return nx>=0&&nx<gridSize&&ny>=0&&ny<gridSize&&!collidesWithSnake(nx,ny)&&!collidesWithWall(nx,ny);}
-
 // ----- Init -----
-function initGame(){setupCanvas();snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];apples=[];score=0;dir='RIGHT';paused=false;scoreEl.textContent=score;overlay.style.display='none';while(apples.length<appleCount)spawnApple();setSpeed(trainingEnabled?trainingSpeed:parseInt(speedRange.value));if(gameTimer)clearInterval(gameTimer);gameTimer=setInterval(tick,intervalMs);drawEverything();}
+function safeFallbackMove(){for(const mv of ['UP','RIGHT','DOWN','LEFT'])if(!collidesWithSnake(snake[0].x+DIRS[mv][0],snake[0].y+DIRS[mv][1])&&!collidesWithWall(snake[0].x+DIRS[mv][0],snake[0].y+DIRS[mv][1]))return mv;return dir;}
+function initGame(){
+  setupCanvas();snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];apples=[];score=0;dir='RIGHT';paused=false;
+  scoreEl.textContent=score;overlay.style.display='none';while(apples.length<appleCount)spawnApple();
+  setSpeed(trainingEnabled?trainingSpeed:parseInt(speedRange.value));if(gameTimer)clearInterval(gameTimer);gameTimer=setInterval(tick,intervalMs);drawEverything();
+}
 
 initGame();
 </script>
