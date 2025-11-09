@@ -317,13 +317,14 @@ function initGame(){
   setupCanvas();
   snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];
   apples=[]; score=0; dir='RIGHT'; paused=false;
-  walls=[]; // reset walls on new game if needed
+  // walls array is NOT reset here anymore, so walls persist
   scoreEl.textContent=score; overlay.style.display='none';
   while(apples.length<appleCount) spawnApple();
   setSpeed(trainingEnabled?trainingSpeed:parseInt(speedRange.value));
   if(gameTimer) clearInterval(gameTimer);
   gameTimer=setInterval(tick,intervalMs);
 }
+
 
 initGame();
 </script>
