@@ -22,7 +22,7 @@
 </style>
 </head>
 <body>
-<h1>Blue Snake AI</h1>
+<h1>Blue Snake</h1>
 
 <div class="controls">
   <label>Map size: <input id="mapSize" type="number" min="5" max="50" value="15"></label>
@@ -36,7 +36,6 @@
   <label>Speed: <input id="speed" type="range" min="30" max="300" value="120"> <span id="speedVal">120ms</span></label>
   <button id="playAgain">Play Again</button>
   <button id="pauseBtn">Pause</button>
-  <label>Training: <input id="training" type="checkbox"></label>
   <button id="trainBtn">Train</button>
 </div>
 
@@ -64,7 +63,6 @@ const scoreEl = document.getElementById('score');
 const speedRange = document.getElementById('speed');
 const speedVal = document.getElementById('speedVal');
 const pauseBtn = document.getElementById('pauseBtn');
-const trainingCheckbox = document.getElementById('training');
 const trainBtn = document.getElementById('trainBtn');
 
 // ----- Sounds -----
@@ -78,11 +76,18 @@ let paused = false;
 const DIRS = {UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0]};
 let trainingEnabled = false;
 let trainingSpeed = 10; // extremely fast
-let mistakesLog = JSON.parse(localStorage.getItem('snakeMistakes')||'[]');
+// Learning data: maps simplified states to unsafe moves
+let learningData = JSON.parse(localStorage.getItem('snakeLearning') || '{}');
 
 // ----- Utils -----
 function keyOf(x,y){ return `${x},${y}`; }
 function collidesWithSnake(x,y){ return snake.some(s=>s.x===x && s.y===y); }
+function getStateKey(){
+  const head = snake[0];
+  const appleKey = apples.map(a=>`${a.x},${a.y}`).join('|');
+  // simplified pattern: head position and nearby obstacles
+  return `${head.x},${head.y}|${appleKey}|${snake.length}`;
+}
 
 // ----- Canvas -----
 function setupCanvas(){
@@ -121,26 +126,7 @@ function floodFillCount(sx,sy,snakeBody,limit=1000){
   return cnt;
 }
 
-// ----- BFS -----
-function bfsPath(start,target,snakeBody){
-  const queue=[{x:start.x,y:start.y,path:[]}]; const visited=new Set([keyOf(start.x,start.y)]);
-  const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
-  while(queue.length){
-    const node=queue.shift();
-    if(node.x===target.x && node.y===target.y) return node.path;
-    for(const [dx,dy,name] of [[0,-1,'UP'],[0,1,'DOWN'],[-1,0,'LEFT'],[1,0,'RIGHT']]){
-      const nx=node.x+dx, ny=node.y+dy, k=keyOf(nx,ny);
-      if(nx<0||nx>=gridSize||ny<0||ny>=gridSize) continue;
-      if(bodySet.has(k) && !(nx===target.x&&ny===target.y)) continue;
-      if(visited.has(k)) continue;
-      visited.add(k);
-      queue.push({x:nx,y:ny,path:node.path.concat(name)});
-    }
-  }
-  return [];
-}
-
-// ----- A* -----
+// ----- BFS / A* -----
 function aStarPath(start,target,snakeBody){
   const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
   const h=(x,y)=>Math.abs(x-target.x)+Math.abs(y-target.y);
@@ -170,11 +156,14 @@ function aStarPath(start,target,snakeBody){
   return [];
 }
 
-// ----- Choose AI move -----
+// ----- AI Move with Learning -----
 function chooseAIMove(){
+  const stateKey = getStateKey();
+  const forbiddenMoves = learningData[stateKey] || [];
   const start={x:snake[0].x,y:snake[0].y};
   const mode=aiModeSelect.value;
   let bestScore=-Infinity, bestMove=null;
+
   for(const apple of apples){
     const path=aStarPath(start,apple,snake);
     if(!path.length) continue;
@@ -182,9 +171,17 @@ function chooseAIMove(){
     path.forEach((mv,i)=>{ if(i>50) return; const dxy=DIRS[mv]; simHead={x:simHead.x+dxy[0],y:simHead.y+dxy[1]}; simSnake.unshift({...simHead}); simSnake.pop(); });
     const free=floodFillCount(simHead.x,simHead.y,simSnake,2000);
     let scoreVal=(mode==='greedy'?1000-free:free);
-    if(scoreVal>bestScore){ bestScore=scoreVal; bestMove=path[0]; }
+    if(scoreVal>bestScore && !forbiddenMoves.includes(path[0])){
+      bestScore=scoreVal; bestMove=path[0];
+    }
   }
-  if(!bestMove && trainingEnabled){ mistakesLog.push({snake:snake.map(s=>({...s})), apples:apples.map(a=>({...a})), dir}); localStorage.setItem('snakeMistakes',JSON.stringify(mistakesLog)); }
+
+  if(!bestMove && trainingEnabled){
+    if(!learningData[stateKey]) learningData[stateKey]=[];
+    learningData[stateKey].push(dir);
+    localStorage.setItem('snakeLearning',JSON.stringify(learningData));
+  }
+
   return bestMove || safeFallbackMove();
 }
 
@@ -192,17 +189,14 @@ function safeFallbackMove(){ for(const mv of ['UP','RIGHT','DOWN','LEFT']) if(is
 function isMoveSafe(mv){ const dxy=DIRS[mv]; const nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1]; return nx>=0 && nx<gridSize && ny>=0 && ny<gridSize && !collidesWithSnake(nx,ny); }
 
 // ----- Tick -----
-let lastPath=[];
 function tick(){
   if(paused) return;
-  if(trainingEnabled) dir=chooseAIMove();
-  else dir=chooseAIMove();
+  dir = chooseAIMove();
   const dxy=DIRS[dir]; const nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1]; const newHead={x:nx,y:ny};
   if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
     clearInterval(gameTimer); SND_DEAD.play().catch(()=>{});
-    overlayText.textContent=`You Died! Score: ${score}`;
-    overlay.style.display='flex';
-    if(trainingEnabled){ localStorage.setItem('snakeMistakes',JSON.stringify(mistakesLog)); autoRetry(); }
+    overlayText.textContent=`You Died! Score: ${score}`; overlay.style.display='flex';
+    if(trainingEnabled) autoRetry();
     return;
   }
 
@@ -217,16 +211,13 @@ function tick(){
 
   snake.unshift(newHead); if(!ate) snake.pop();
   if(snake.length>=gridSize*gridSize){ clearInterval(gameTimer); overlayText.textContent='You Won!'; overlay.style.display='flex'; if(trainingEnabled) autoRetry(); return; }
-
   drawEverything();
 }
 
 // ----- Draw -----
 function drawEverything(){
   ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
-  // apples
   for(const a of apples){ const px=a.x*box, py=a.y*box; ctx.fillStyle='#ff4d4d'; ctx.fillRect(px,py,box,box); ctx.strokeStyle='#8b0000'; ctx.strokeRect(px+1,py+1,box-2,box-2);}
-  // snake
   for(let i=snake.length-1;i>=0;i--){ const s=snake[i]; const px=s.x*box, py=s.y*box; ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff'; ctx.fillRect(px,py,box,box); ctx.strokeStyle='#003f66'; ctx.strokeRect(px+1,py+1,box-2,box-2);}
 }
 
@@ -238,7 +229,12 @@ function autoRetry(){
 }
 
 // ----- Controls -----
-document.addEventListener('keydown',(e)=>{ if(e.key==='ArrowUp' && dir!=='DOWN') dir='UP'; if(e.key==='ArrowDown' && dir!=='UP') dir='DOWN'; if(e.key==='ArrowLeft' && dir!=='RIGHT') dir='LEFT'; if(e.key==='ArrowRight' && dir!=='LEFT') dir='RIGHT'; });
+document.addEventListener('keydown',(e)=>{
+  if(e.key==='ArrowUp' && dir!=='DOWN') dir='UP';
+  if(e.key==='ArrowDown' && dir!=='UP') dir='DOWN';
+  if(e.key==='ArrowLeft' && dir!=='RIGHT') dir='LEFT';
+  if(e.key==='ArrowRight' && dir!=='LEFT') dir='RIGHT';
+});
 playAgainBtn.addEventListener('click',()=>initGame());
 overlayBtn.addEventListener('click',()=>initGame());
 speedRange.addEventListener('input',()=>setSpeed(parseInt(speedRange.value)));
