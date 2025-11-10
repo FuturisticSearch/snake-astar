@@ -86,10 +86,6 @@ const showCalcBtn = document.getElementById('showCalcBtn');
 const calcPanel = document.getElementById('calcPanel');
 const clearLearningBtn = document.getElementById('clearLearningBtn');
 
-// ----- Sounds -----
-const SND_EAT = new Audio('/sound/eated.mp3');
-const SND_DEAD = new Audio('/sound/gameover.mp3');
-
 // ----- Config -----
 let box = 32;
 let gridSize, appleCount, snake, apples, walls=[], dir, gameTimer, intervalMs, score;
@@ -98,134 +94,259 @@ const DIRS = {UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0]};
 let trainingEnabled=false, trainingSpeed=50;
 let totalScore=0, gamesPlayed=0;
 
-// ----- Learning (Netlify) -----
-let learningData = {};
-let tempLearning = {};
+// ----- Learning -----
+let learningData = {};      // merged data
+let tempLearning = {};      // temporary training moves
 let lastSave = 0;
 
-async function loadLearningData(){
+// robust cookie handling
+function getCookie(name){
   try{
-    const res = await fetch('https://snakebott.netlify.app/netlify/functions/learning.json');
-    if(res.ok){
-      const data = await res.json();
-      learningData = {...data};
-    }
-  } catch(e){ console.warn('Failed to load learning', e); }
+    const match = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+    if(!match) return {};
+    const compressed = decodeURIComponent(match[2]);
+    if(!compressed) return {};
+    const decompressed = LZString.decompressFromBase64(compressed);
+    if(!decompressed) return {};
+    const parsed = JSON.parse(decompressed);
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch(e){return {};}
 }
-
-async function saveLearningDataBatch(){
-  const now = Date.now();
-  if(now - lastSave < 5000) return;
-  if(Object.keys(tempLearning).length === 0) return;
+function setCookie(name,value){
   try{
-    const res = await fetch('https://snakebott.netlify.app/netlify/functions/learning.json', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(tempLearning)
-    });
-    if(res.ok){
-      for(const k in tempLearning){
-        if(!learningData[k]) learningData[k]=[];
-        learningData[k] = Array.from(new Set([...learningData[k], ...tempLearning[k]]));
-      }
-      tempLearning = {};
-      lastSave = now;
+    const existing = getCookie(name) || {};
+    const merged = {...existing};
+    for(const k of Object.keys(value || {})){
+      const a = Array.isArray(existing[k]) ? existing[k].slice() : [];
+      const b = Array.isArray(value[k]) ? value[k].slice() : [];
+      merged[k] = Array.from(new Set(a.concat(b)));
     }
-  } catch(e){ console.warn('Failed to save learning', e); }
-}
-
-function recordBadMove(stateKey, move){
-  if(!tempLearning[stateKey]) tempLearning[stateKey] = [];
-  if(!tempLearning[stateKey].includes(move)) tempLearning[stateKey].push(move);
-  saveLearningDataBatch();
+    for(const k of Object.keys(existing)){ if(!(k in merged)) merged[k] = existing[k]; }
+    const compressed = LZString.compressToBase64(JSON.stringify(merged));
+    document.cookie = `${name}=${encodeURIComponent(compressed)}; path=/; max-age=${60*60*24*365}`;
+    learningData = merged;
+  } catch(e){console.warn(e);}
 }
 
 // ----- Utils -----
 function keyOf(x,y){return `${x},${y}`;}
 function collidesWithSnake(x,y){return snake.some(s=>s.x===x && s.y===y);}
 function collidesWithWall(x,y){return walls.some(w=>w.x===x && w.y===y);}
-function getStateKey(){const head=snake[0];const appleKey=apples.map(a=>`${a.x},${a.y}`).join('|');return `${head.x},${head.y}|${appleKey}|${walls.length}|${snake.length}`;}
+function getStateKey(){
+  const head=snake[0];
+  const appleKey=apples.map(a=>`${a.x},${a.y}`).join('|');
+  return `${head.x},${head.y}|${appleKey}|${walls.length}|${snake.length}`;
+}
 
 // ----- Canvas -----
-function setupCanvas(){gridSize=Math.max(5,Math.min(50,parseInt(mapSizeInput.value)||15));appleCount=Math.max(1,Math.min(20,parseInt(appleInput.value)||5));box=Math.max(12,Math.floor(640/gridSize));canvas.width=canvas.height=box*gridSize;}
+function setupCanvas(){
+  gridSize=Math.max(5,Math.min(50,parseInt(mapSizeInput.value)||15));
+  appleCount=Math.max(1,Math.min(20,parseInt(appleInput.value)||5));
+  box=Math.max(12,Math.floor(640/gridSize));
+  canvas.width=canvas.height=box*gridSize;
+}
 
 // ----- Spawn Apple -----
-function spawnApple(){let attempts=0;while(attempts<2000){const x=Math.floor(Math.random()*gridSize),y=Math.floor(Math.random()*gridSize);if(!collidesWithSnake(x,y)&&!apples.some(a=>a.x===x&&a.y===y)&&!collidesWithWall(x,y)){apples.push({x,y});return;}attempts++;}}
+function spawnApple(){
+  let attempts=0;
+  while(attempts<2000){
+    const x=Math.floor(Math.random()*gridSize), y=Math.floor(Math.random()*gridSize);
+    if(!collidesWithSnake(x,y) && !apples.some(a=>a.x===x&&a.y===y) && !collidesWithWall(x,y)){
+      apples.push({x,y});
+      return;
+    }
+    attempts++;
+  }
+}
 
 // ----- Flood Fill -----
-function floodFillCount(sx,sy,snakeBody,limit=1000){const visited=new Set(),bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y))),wallSet=new Set(walls.map(w=>keyOf(w.x,w.y)));const q=[{x:sx,y:sy}];let cnt=0;while(q.length&&cnt<limit){const p=q.shift(),k=keyOf(p.x,p.y);if(visited.has(k))continue;if(p.x<0||p.x>=gridSize||p.y<0||p.y>=gridSize)continue;if(bodySet.has(k)||wallSet.has(k))continue;visited.add(k);cnt++;q.push({x:p.x+1,y:p.y});q.push({x:p.x-1,y:p.y});q.push({x:p.x,y:p.y+1});q.push({x:p.x,y:p.y-1});}return cnt;}
+function floodFillCount(sx,sy,snakeBody,limit=1000){
+  const visited=new Set(), bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y))),
+        wallSet=new Set(walls.map(w=>keyOf(w.x,w.y)));
+  const q=[{x:sx,y:sy}]; let cnt=0;
+  while(q.length && cnt<limit){
+    const p=q.shift(), k=keyOf(p.x,p.y);
+    if(visited.has(k)) continue;
+    if(p.x<0||p.x>=gridSize||p.y<0||p.y>=gridSize) continue;
+    if(bodySet.has(k)||wallSet.has(k)) continue;
+    visited.add(k); cnt++;
+    q.push({x:p.x+1,y:p.y}); q.push({x:p.x-1,y:p.y});
+    q.push({x:p.x,y:p.y+1}); q.push({x:p.x,y:p.y-1});
+  }
+  return cnt;
+}
 
 // ----- A* Pathfinding -----
-function aStarPath(start,target,snakeBody){const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y))),wallSet=new Set(walls.map(w=>keyOf(w.x,w.y)));const h=(x,y)=>Math.abs(x-target.x)+Math.abs(y-target.y);const open=new Map(),closed=new Set();const startK=keyOf(start.x,start.y);open.set(startK,{x:start.x,y:start.y,g:0,f:h(start.x,start.y),parent:null,move:null});while(open.size){let current,currentK;for(const [k,n] of open){if(!current||n.f<current.f){current=n;currentK=k;}}open.delete(currentK);closed.add(currentK);if(current.x===target.x&&current.y===target.y){const out=[];let node=current;while(node.parent){out.unshift(node.move);node=node.parent;}return out;}for(const [dx,dy,name] of [[0,-1,'UP'],[0,1,'DOWN'],[-1,0,'LEFT'],[1,0,'RIGHT']]){const nx=current.x+dx,ny=current.y+dy,nk=keyOf(nx,ny);if(nx<0||nx>=gridSize||ny<0||ny>=gridSize)continue;if(closed.has(nk))continue;if(bodySet.has(nk)&&!(nx===target.x&&ny===target.y))continue;if(wallSet.has(nk))continue;const ng=current.g+1;if(!open.has(nk)||ng<open.get(nk).g){open.set(nk,{x:nx,y:ny,g:ng,f:ng+h(nx,ny),parent:current,move:name});}}}return []}
+function aStarPath(start,target,snakeBody){
+  const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y))),
+        wallSet=new Set(walls.map(w=>keyOf(w.x,w.y))),
+        h=(x,y)=>Math.abs(x-target.x)+Math.abs(y-target.y);
+  const open=new Map(), closed=new Set();
+  const startK=keyOf(start.x,start.y);
+  open.set(startK,{x:start.x,y:start.y,g:0,f:h(start.x,start.y),parent:null,move:null});
+  while(open.size){
+    let current,currentK;
+    for(const [k,n] of open){ if(!current||n.f<current.f){current=n;currentK=k;} }
+    open.delete(currentK); closed.add(currentK);
+    if(current.x===target.x && current.y===target.y){
+      const out=[]; let node=current;
+      while(node.parent){ out.unshift(node.move); node=node.parent; }
+      return out;
+    }
+    for(const [dx,dy,name] of [[0,-1,'UP'],[0,1,'DOWN'],[-1,0,'LEFT'],[1,0,'RIGHT']]){
+      const nx=current.x+dx, ny=current.y+dy, nk=keyOf(nx,ny);
+      if(nx<0||nx>=gridSize||ny<0||ny>=gridSize) continue;
+      if(closed.has(nk)) continue;
+      if(bodySet.has(nk) && !(nx===target.x&&ny===target.y)) continue;
+      if(wallSet.has(nk)) continue;
+      const ng=current.g+1;
+      if(!open.has(nk) || ng<open.get(nk).g){
+        open.set(nk,{x:nx,y:ny,g:ng,f:ng+h(nx,ny),parent:current,move:name});
+      }
+    }
+  }
+  return [];
+}
 
 // ----- AI -----
-let debugPaths=[],debugScores=[];
-function safeFallbackMove(){for(const mv of ['UP','RIGHT','DOWN','LEFT'])if(!collidesWithSnake(snake[0].x+DIRS[mv][0],snake[0].y+DIRS[mv][1])&&!collidesWithWall(snake[0].x+DIRS[mv][0],snake[0].y+DIRS[mv][1]))return mv;return dir;}
+let debugPaths=[], debugScores=[];
+function safeFallbackMove(){
+  for(const mv of ['UP','RIGHT','DOWN','LEFT']){
+    if(!collidesWithSnake(snake[0].x+DIRS[mv][0],snake[0].y+DIRS[mv][1]) &&
+       !collidesWithWall(snake[0].x+DIRS[mv][0],snake[0].y+DIRS[mv][1])) return mv;
+  }
+  return dir;
+}
 function chooseAIMove(){
-  debugPaths=[];debugScores=[];
+  debugPaths=[]; debugScores=[];
   const stateKey=getStateKey();
   const forbiddenMoves = Array.isArray(learningData[stateKey]) ? learningData[stateKey] : [];
   const start={x:snake[0].x,y:snake[0].y};
-  const mode=aiModeSelect.value;
-  let bestScore=-Infinity,bestMove=null,bestPath=[];
+  const mode = aiModeSelect.value;
+  let bestScore=-Infinity, bestMove=null, bestPath=[];
+  
   for(const apple of apples){
     const path=aStarPath(start,apple,snake);
-    if(!path.length)continue;
-    let simSnake=snake.map(s=>({x:s.x,y:s.y})),simHead={x:simSnake[0].x,y:simSnake[0].y};
+    if(!path.length) continue;
+    let simSnake = snake.map(s=>({x:s.x,y:s.y})), simHead={x:simSnake[0].x,y:simSnake[0].y};
     let pathScores=[];
-    path.forEach((mv,i)=>{
-      const dxy=DIRS[mv];simHead={x:simHead.x+dxy[0],y:simHead.y+dxy[1]};simSnake.unshift({...simHead});simSnake.pop();
-      const free=floodFillCount(simHead.x,simHead.y,simSnake,2000);
-      let scoreVal=(mode==='greedy'?1000-free:free);
-      if(forbiddenMoves.includes(mv)) scoreVal-=500;
+    path.forEach(mv=>{
+      const dxy=DIRS[mv]; simHead={x:simHead.x+dxy[0],y:simHead.y+dxy[1]};
+      simSnake.unshift({...simHead}); simSnake.pop();
+      let free=floodFillCount(simHead.x,simHead.y,simSnake,2000);
+      let scoreVal = (mode==='greedy'?1000-free:free);
+      if(forbiddenMoves.includes(mv)) scoreVal -= 500;
       pathScores.push(scoreVal);
     });
     debugPaths.push({path,apple,isChosen:false});
     debugScores.push({path,apple,pathScores});
     const finalScore=pathScores[pathScores.length-1]||0;
     if(finalScore>bestScore && !forbiddenMoves.includes(path[0])){
-      bestScore=finalScore;bestMove=path[0];bestPath=path;
+      bestScore=finalScore; bestMove=path[0]; bestPath=path;
     }
   }
+  
   debugPaths.forEach(p=>p.isChosen=(p.path===bestPath));
-  if(!bestMove && trainingEnabled){
+  
+  // record fallback if training
+  if(trainingEnabled && bestMove===null){
     const fallback = safeFallbackMove();
-    if(fallback) recordBadMove(stateKey, fallback);
+    if(fallback){
+      if(!tempLearning[stateKey]) tempLearning[stateKey]=[];
+      if(!tempLearning[stateKey].includes(fallback)) tempLearning[stateKey].push(fallback);
+      saveLearningDataBatch();
+    }
   }
+  
   return bestMove || safeFallbackMove();
+}
+
+// ----- Save Learning to Netlify -----
+async function saveLearningDataBatch(){
+  const now=Date.now();
+  if(now-lastSave<5000) return; // spam prevention
+  if(Object.keys(tempLearning).length===0) return;
+  try{
+    await fetch('https://snakebott.netlify.app/netlify/functions/learning', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(tempLearning)
+    });
+    for(const k in tempLearning){
+      if(!learningData[k]) learningData[k]=[];
+      learningData[k]=Array.from(new Set([...learningData[k], ...tempLearning[k]]));
+    }
+    tempLearning={}; lastSave=now;
+  }catch(e){console.warn(e);}
 }
 
 // ----- Tick -----
 function tick(){
-  if(paused)return;
+  if(paused) return;
   dir=chooseAIMove();
-  const dxy=DIRS[dir]; const nx=snake[0].x+dxy[0],ny=snake[0].y+dxy[1]; const newHead={x:nx,y:ny};
+  const dxy=DIRS[dir]; const nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1]; const newHead={x:nx,y:ny};
   if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)||collidesWithWall(nx,ny)){
-    clearInterval(gameTimer);
-    totalScore+=score; gamesPlayed++; avgScoreEl.textContent=(totalScore/gamesPlayed).toFixed(2);
-    if(!trainingEnabled)SND_DEAD.play().catch(()=>{});
+    clearInterval(gameTimer); totalScore+=score; gamesPlayed++;
+    avgScoreEl.textContent=(totalScore/gamesPlayed).toFixed(2);
     overlayText.textContent=`You Died! Score: ${score}`; overlay.style.display='flex';
-    if(trainingEnabled)setTimeout(initGame,50);
+    if(trainingEnabled) setTimeout(initGame,50);
     return;
   }
   let ate=false;
-  for(let i=0;i<apples.length;i++){if(apples[i].x===nx&&apples[i].y===ny){ate=true;score++;scoreEl.textContent=score;if(!trainingEnabled)SND_EAT.play().catch(()=>{});apples.splice(i,1);spawnApple();break;} }
-  snake.unshift(newHead);if(!ate)snake.pop();
-  if(snake.length>=gridSize*gridSize){clearInterval(gameTimer);totalScore+=score;gamesPlayed++;avgScoreEl.textContent=(totalScore/gamesPlayed).toFixed(2);overlayText.textContent='You Won!';overlay.style.display='flex';if(trainingEnabled)setTimeout(initGame,50);return;}
+  for(let i=0;i<apples.length;i++){
+    if(apples[i].x===nx && apples[i].y===ny){
+      ate=true; score++; scoreEl.textContent=score;
+      apples.splice(i,1); spawnApple();
+      break;
+    }
+  }
+  snake.unshift(newHead); if(!ate) snake.pop();
+  if(snake.length>=gridSize*gridSize){clearInterval(gameTimer); overlayText.textContent='You Won!'; overlay.style.display='flex'; if(trainingEnabled)setTimeout(initGame,50);}
   drawEverything();
 }
 
 // ----- Draw -----
 function drawEverything(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  for(const w of walls){ctx.fillStyle='#666';ctx.fillRect(w.x*box,w.y*box,box,box);ctx.strokeStyle='#333';ctx.strokeRect(w.x*box+1,w.y*box+1,box-2,box-2);}
-  for(const a of apples){ctx.fillStyle='#ff4d4d';ctx.fillRect(a.x*box,a.y*box,box,box);ctx.strokeStyle='#8b0000';ctx.strokeRect(a.x*box+1,a.y*box+1,box-2,box-2);}
-  for(let i=snake.length-1;i>=0;i--){const s=snake[i];ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff';ctx.fillRect(s.x*box,s.y*box,box,box);ctx.strokeStyle='#003f66';ctx.strokeRect(s.x*box+1,s.y*box+1,box-2,box-2);}
+  for(const w of walls){ctx.fillStyle='#666';ctx.fillRect(w.x*box,w.y*box,box,box);}
+  for(const a of apples){ctx.fillStyle='#ff4d4d';ctx.fillRect(a.x*box,a.y*box,box,box);}
+  for(let i=snake.length-1;i>=0;i--){
+    const s=snake[i]; ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff'; ctx.fillRect(s.x*box,s.y*box,box,box);
+  }
+  debugPaths.forEach(dp=>{
+    let x=snake[0].x, y=snake[0].y;
+    dp.path.forEach(mv=>{
+      const dxy=DIRS[mv]; x+=dxy[0]; y+=dxy[1];
+      ctx.fillStyle = dp.isChosen ? 'rgba(0,255,0,0.5)' : 'rgba(255,255,0,0.2)';
+      ctx.fillRect(x*box, y*box, box, box);
+    });
+  });
+  
+  // calculations panel
+  calcPanel.textContent='';
+  if(showCalculations){
+    debugScores.forEach(dp=>{
+      calcPanel.textContent += `Apple (${dp.apple.x},${dp.apple.y}): [${dp.path.join(',')}] => Scores: [${dp.pathScores.map(s=>s.toFixed(0)).join(', ')}]\n`;
+    });
+  }
 }
 
+// ----- Editor -----
+canvas.addEventListener('click',e=>{
+  if(!editorEnabled) return;
+  const rect=canvas.getBoundingClientRect();
+  const x=Math.floor((e.clientX-rect.left)/box);
+  const y=Math.floor((e.clientY-rect.top)/box);
+  const idx=walls.findIndex(w=>w.x===x && w.y===y);
+  if(idx>=0) walls.splice(idx,1); else walls.push({x,y});
+});
+
 // ----- Controls -----
-canvas.addEventListener('click',e=>{if(!editorEnabled)return;const rect=canvas.getBoundingClientRect();const x=Math.floor((e.clientX-rect.left)/box);const y=Math.floor((e.clientY-rect.top)/box);const wallIndex=walls.findIndex(w=>w.x===x&&w.y===y);if(wallIndex>=0)walls.splice(wallIndex,1);else walls.push({x,y});});
-document.addEventListener('keydown',e=>{if(e.key==='ArrowUp'&&dir!=='DOWN')dir='UP';if(e.key==='ArrowDown'&&dir!=='UP')dir='DOWN';if(e.key==='ArrowLeft'&&dir!=='RIGHT')dir='LEFT';if(e.key==='ArrowRight'&&dir!=='LEFT')dir='RIGHT';});
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowUp' && dir!=='DOWN') dir='UP';
+  if(e.key==='ArrowDown' && dir!=='UP') dir='DOWN';
+  if(e.key==='ArrowLeft' && dir!=='RIGHT') dir='LEFT';
+  if(e.key==='ArrowRight' && dir!=='LEFT') dir='RIGHT';
+});
 playAgainBtn.addEventListener('click',()=>initGame());
 overlayBtn.addEventListener('click',()=>initGame());
 speedRange.addEventListener('input',()=>setSpeed(parseInt(speedRange.value)));
@@ -233,27 +354,29 @@ pauseBtn.addEventListener('click',()=>paused=!paused);
 trainBtn.addEventListener('click',()=>{
   trainingEnabled=!trainingEnabled;
   trainBtn.textContent = trainingEnabled ? 'Training: ON' : 'Train';
-  if(trainingEnabled){ setTimeout(initGame,50); }
+  if(trainingEnabled) setTimeout(initGame,50);
 });
 editorBtn.addEventListener('click',()=>editorEnabled=!editorEnabled);
-showCalcBtn.addEventListener('click',()=>showCalculations=!showCalculations);
+showCalcBtn.addEventListener('click',()=>{ showCalculations=!showCalculations; drawEverything(); });
 clearLearningBtn.addEventListener('click',()=>{
-  learningData = {};
-  tempLearning = {};
-  fetch('https://snakebott.netlify.app/netlify/functions/learning.json', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({})});
+  learningData = {}; tempLearning = {};
+  setCookie('snakeLearning', {});
   alert('Learning cleared.');
 });
 
 // ----- Speed -----
-function setSpeed(ms){intervalMs=ms;speedVal.textContent=ms+'ms';if(gameTimer){clearInterval(gameTimer);gameTimer=setInterval(tick,intervalMs);}}
+function setSpeed(ms){ intervalMs=ms; speedVal.textContent=ms+'ms'; if(gameTimer){clearInterval(gameTimer);gameTimer=setInterval(tick,intervalMs);} }
 
 // ----- Init -----
-async function initGame(){
-  await loadLearningData();
-  setupCanvas();snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];apples=[];score=0;dir='RIGHT';paused=false;
-  scoreEl.textContent=score;overlay.style.display='none';while(apples.length<appleCount)spawnApple();
+function initGame(){
+  learningData = getCookie('snakeLearning') || {};
+  setupCanvas(); snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}]; apples=[]; score=0; dir='RIGHT'; paused=false;
+  scoreEl.textContent=score; overlay.style.display='none';
+  while(apples.length<appleCount) spawnApple();
   setSpeed(trainingEnabled?trainingSpeed:parseInt(speedRange.value));
-  if(gameTimer)clearInterval(gameTimer);gameTimer=setInterval(tick,intervalMs);drawEverything();
+  if(gameTimer) clearInterval(gameTimer);
+  gameTimer=setInterval(tick,intervalMs);
+  drawEverything();
 }
 
 initGame();
