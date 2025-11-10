@@ -75,7 +75,7 @@ const toggleCalcBtn = document.getElementById('toggleCalcBtn');
 const clearDataBtn = document.getElementById('clearDataBtn');
 
 // ----- Config -----
-let box = 32, gridSize, appleCount, snake, apples, dir, gameTimer, intervalMs=120, score=0;
+let box = 32, gridSize, appleCount, snake, apples, dir, gameTimer=null, intervalMs=120, score=0;
 let paused=false, trainingEnabled=false;
 let debugPaths=[], debugScores=[];
 const DIRS={UP:[0,-1],DOWN:[0,1],LEFT:[-1,0],RIGHT:[1,0]};
@@ -208,11 +208,10 @@ function tick(){
   const dxy=DIRS[dir], nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1];
   const newHead={x:nx,y:ny};
   if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
-    clearInterval(gameTimer);
+    if(gameTimer){ clearInterval(gameTimer); gameTimer=null; }
     overlayText.textContent=`You Died! Score: ${score}`;
     overlay.style.display='flex';
-    gamesPlayed++;
-    avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
+    gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
     if(trainingEnabled) autoRetry();
     return;
@@ -224,10 +223,9 @@ function tick(){
       apples.splice(i,1); spawnApple(); break;
     }
   }
-  snake.unshift(newHead);
-  if(!ate) snake.pop();
+  snake.unshift(newHead); if(!ate) snake.pop();
   if(snake.length>=gridSize*gridSize){
-    clearInterval(gameTimer);
+    if(gameTimer){ clearInterval(gameTimer); gameTimer=null; }
     overlayText.textContent='You Won!';
     overlay.style.display='flex';
     gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
@@ -268,7 +266,7 @@ function drawEverything(){
 }
 
 // ----- Auto Retry -----
-function autoRetry(){ if(trainingEnabled) initGame(); }
+function autoRetry(){ if(trainingEnabled) setTimeout(initGame,0); }
 
 // ----- Controls -----
 document.addEventListener('keydown',e=>{
@@ -279,13 +277,24 @@ document.addEventListener('keydown',e=>{
 });
 playAgainBtn.addEventListener('click',()=>initGame());
 overlayBtn.addEventListener('click',()=>initGame());
-speedRange.addEventListener('input',()=>intervalMs=parseInt(speedRange.value));
+speedRange.addEventListener('input',()=>{
+  intervalMs=parseInt(speedRange.value);
+  speedVal.textContent=intervalMs+'ms';
+  if(!trainingEnabled && gameTimer){ clearInterval(gameTimer); gameTimer=setInterval(tick,intervalMs); }
+});
 pauseBtn.addEventListener('click',()=>paused=!paused);
 toggleCalcBtn.addEventListener('click',()=>{calcPanel.style.display=calcPanel.style.display==='none'?'block':'none'; drawEverything();});
 
 // ----- Training -----
-trainBtn.addEventListener('click',()=>{trainingEnabled=!trainingEnabled; if(trainingEnabled){initGame(); runTrainingLoop();} else saveLearningData();});
-function runTrainingLoop(){while(trainingEnabled && snake.length>0){tick();}}
+trainBtn.addEventListener('click',()=>{
+  trainingEnabled=!trainingEnabled;
+  if(trainingEnabled){ initGame(); trainingLoop(); }
+});
+function trainingLoop(){
+  if(!trainingEnabled) return;
+  tick();
+  requestAnimationFrame(trainingLoop);
+}
 
 // ----- Init -----
 function initGame(){
@@ -294,11 +303,12 @@ function initGame(){
   apples=[]; score=0; dir='RIGHT';
   scoreEl.textContent=score; overlay.style.display='none';
   while(apples.length<appleCount) spawnApple();
-  if(!trainingEnabled) gameTimer=setInterval(tick,intervalMs);
+  if(!trainingEnabled){
+    if(gameTimer) clearInterval(gameTimer);
+    gameTimer=setInterval(tick,intervalMs);
+  }
   drawEverything();
 }
-
-async function saveLearningData(){ if(Object.keys(tempLearning).length>0){ /* implement cloud save to /.netlify/functions/learning */ tempLearning={}; } }
 
 initGame();
 </script>
