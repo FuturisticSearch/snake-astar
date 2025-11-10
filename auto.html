@@ -53,10 +53,11 @@
 
 <div id="calcPanel" style="display:none"></div>
 
-<!-- Add sound elements -->
-<audio id="eatSound" src="/sound/eated.mp3"></audio>
-<audio id="gameOverSound" src="/sound/game over.mp3"></audio>
+<!-- Sounds -->
+<audio id="eatSound" src="/sounds/eated.mp3"></audio>
+<audio id="gameOverSound" src="/sounds/game over.mp3"></audio>
 
+<script src="https://cdn.jsdelivr.net/npm/ldstring@1.2.0/ldstring.min.js"></script>
 <script>
 // ----- Elements -----
 const canvas = document.getElementById('canvas');
@@ -77,8 +78,6 @@ const trainBtn = document.getElementById('trainBtn');
 const calcPanel = document.getElementById('calcPanel');
 const toggleCalcBtn = document.getElementById('toggleCalcBtn');
 const clearDataBtn = document.getElementById('clearDataBtn');
-
-// Sound elements
 const eatSound = document.getElementById('eatSound');
 const gameOverSound = document.getElementById('gameOverSound');
 
@@ -89,6 +88,7 @@ let debugPaths=[], debugScores=[];
 const DIRS={UP:[0,-1],DOWN:[0,1],LEFT:[-1,0],RIGHT:[1,0]};
 let learningData={}, tempLearning={};
 let avgScore=0, gamesPlayed=0;
+const batchSize = 5000;
 
 // ----- Utils -----
 function keyOf(x,y){return `${x},${y}`;}
@@ -116,7 +116,7 @@ function spawnApple(){
   }
 }
 
-// ----- Flood Fill -----
+// ----- A* and AI (unchanged) -----
 function floodFillCount(sx,sy,snakeBody,limit=1000){
   const visited=new Set(), bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
   const q=[{x:sx,y:sy}]; let cnt=0;
@@ -132,7 +132,6 @@ function floodFillCount(sx,sy,snakeBody,limit=1000){
   return cnt;
 }
 
-// ----- A* Pathfinding -----
 function aStarPath(start,target,snakeBody){
   const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
   const h=(x,y)=>Math.abs(x-target.x)+Math.abs(y-target.y);
@@ -161,7 +160,6 @@ function aStarPath(start,target,snakeBody){
   return [];
 }
 
-// ----- AI Move -----
 function safeFallbackMove(){
   for(const mv of ['UP','RIGHT','DOWN','LEFT']){
     const d=DIRS[mv]; const nx=snake[0].x+d[0], ny=snake[0].y+d[1];
@@ -210,29 +208,29 @@ function chooseAIMove(){
 function getStateKey(){return `${snake[0].x},${snake[0].y}|${apples.map(a=>`${a.x},${a.y}`).join('|')}|${snake.length}`;}
 
 // ----- Tick -----
-function tick(){
+async function tick(){
   if(paused) return;
   dir=chooseAIMove();
   const dxy=DIRS[dir], nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1];
   const newHead={x:nx,y:ny};
-  if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
-    if(gameTimer){ clearInterval(gameTimer); gameTimer=null; }
-    overlayText.textContent=`You Died! Score: ${score}`;
-    overlay.style.display='flex';
-    gameOverSound.play(); // play game over sound
-    gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
-    avgScoreEl.textContent=avgScore.toFixed(2);
-    if(trainingEnabled) autoRetry();
-    return;
-  }
   let ate=false;
   for(let i=0;i<apples.length;i++){
     if(apples[i].x===nx && apples[i].y===ny){
       ate=true; score++; scoreEl.textContent=score;
       apples.splice(i,1); spawnApple();
-      eatSound.play(); // play apple eaten sound
+      eatSound.play();
       break;
     }
+  }
+  if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
+    if(gameTimer){ clearInterval(gameTimer); gameTimer=null; }
+    overlayText.textContent=`You Died! Score: ${score}`;
+    overlay.style.display='flex';
+    gameOverSound.play();
+    gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
+    avgScoreEl.textContent=avgScore.toFixed(2);
+    if(trainingEnabled) autoRetry();
+    return;
   }
   snake.unshift(newHead); if(!ate) snake.pop();
   if(snake.length>=gridSize*gridSize){
@@ -245,6 +243,7 @@ function tick(){
     return;
   }
   drawEverything();
+  if(!trainingEnabled) await saveLearningData();
 }
 
 // ----- Draw -----
@@ -307,8 +306,35 @@ function trainingLoop(){
   requestAnimationFrame(trainingLoop);
 }
 
+// ----- Learning Data Cloud -----
+async function saveLearningData(){
+  if(Object.keys(tempLearning).length===0) return;
+  const dataStr = LDString.compress(JSON.stringify(tempLearning));
+  const chunks = [];
+  for(let i=0;i<dataStr.length;i+=batchSize) chunks.push(dataStr.slice(i,i+batchSize));
+  for(const chunk of chunks){
+    await fetch('/.netlify/functions/learning', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({chunk})});
+  }
+  Object.assign(learningData, tempLearning);
+  tempLearning={};
+}
+
+async function loadLearningData(){
+  try{
+    const res = await fetch('/.netlify/functions/learning');
+    const txt = await res.text();
+    if(txt) learningData = JSON.parse(LDString.decompress(txt));
+  }catch(e){}
+}
+
+clearDataBtn.addEventListener('click',async()=>{
+  learningData={}; tempLearning={};
+  await fetch('/.netlify/functions/learning', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({clear:true})});
+});
+
 // ----- Init -----
-function initGame(){
+async function initGame(){
+  await loadLearningData();
   setupCanvas();
   snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];
   apples=[]; score=0; dir='RIGHT';
