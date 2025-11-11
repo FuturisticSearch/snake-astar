@@ -226,6 +226,7 @@ function getStateKey(){return `${snake[0].x},${snake[0].y}|${apples.map(a=>`${a.
 
 // ----- Tick -----
 function tick(time){
+  if(!trainingEnabled && overlay.style.display === 'flex') return; // prevent updates if game over
   dir=chooseAIMove();
   const dxy=DIRS[dir], nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1];
   const newHead={x:nx,y:ny};
@@ -240,24 +241,25 @@ function tick(time){
   }
 
   if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
+    if(lastTick){ clearInterval(lastTick); lastTick = null; } // stop normal loop
     overlayText.textContent=`You Died! Score: ${score}`;
     overlay.style.display='flex';
     gameOverSound.play();
-    gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
+    gamesPlayed++;
+    avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
-    if(trainingEnabled) autoRetry();
     return;
-  }
+}
 
-  snake.unshift(newHead); if(!ate) snake.pop();
-  if(snake.length>=gridSize*gridSize){
+if(snake.length>=gridSize*gridSize){
+    if(lastTick){ clearInterval(lastTick); lastTick = null; } // stop normal loop
     overlayText.textContent='You Won!';
     overlay.style.display='flex';
-    gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
+    gamesPlayed++;
+    avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
-    if(trainingEnabled) autoRetry();
     return;
-  }
+}
 
   if(!trainingEnabled || tickCount % 10 === 0) drawEverything(); // skip some frames during training
 }
@@ -309,24 +311,6 @@ speedRange.addEventListener('input',()=>{
 });
 pauseBtn.addEventListener('click',()=>paused=!paused);
 toggleCalcBtn.addEventListener('click',()=>{calcPanel.style.display=calcPanel.style.display==='none'?'block':'none'; drawEverything();});
-
-// ----- Mobile Swipe Controls -----
-let touchStartX=0, touchStartY=0;
-canvas.addEventListener('touchstart', e=>{
-  const t = e.touches[0];
-  touchStartX=t.clientX; touchStartY=t.clientY;
-}, {passive:true});
-canvas.addEventListener('touchend', e=>{
-  const t = e.changedTouches[0];
-  const dx=t.clientX-touchStartX, dy=t.clientY-touchStartY;
-  if(Math.abs(dx)>Math.abs(dy)){
-    if(dx>0 && dir!=='LEFT') dir='RIGHT';
-    else if(dx<0 && dir!=='RIGHT') dir='LEFT';
-  } else {
-    if(dy>0 && dir!=='UP') dir='DOWN';
-    else if(dy<0 && dir!=='DOWN') dir='UP';
-  }
-}, {passive:true});
 
 // ----- Training -----
 trainBtn.addEventListener('click',()=>{
