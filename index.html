@@ -368,6 +368,8 @@ async function initGame(){
 
   scoreEl.textContent = score;
   overlay.style.display = 'none';
+  paused = false;
+  dir = 'RIGHT';
 
   // Spawn initial apples
   while(apples.length < appleCount) spawnApple();
