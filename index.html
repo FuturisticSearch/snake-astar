@@ -206,6 +206,11 @@ function chooseAIMove(){
 
 function getStateKey(){return `${snake[0].x},${snake[0].y}|${apples.map(a=>`${a.x},${a.y}`).join('|')}|${snake.length}`;}
 
+function autoRetry(){
+  if(trainingEnabled){
+    setTimeout(initGame, 0);
+  }
+}
 // ----- Tick -----
 function tick(){
   if(paused) return;
@@ -230,6 +235,7 @@ function tick(){
     gameOverSound.play();
     gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
+    autoRetry();
     return;
   }
 
@@ -242,12 +248,15 @@ function tick(){
     overlay.style.display='flex';
     gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
+    autoRetry();
     return;
   }
 
   drawEverything();
 }
 
+
+  
 // ----- Draw -----
 function drawEverything(){
   ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
