@@ -2,23 +2,42 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Blue Snake AI</title>
 <style>
-  :root {--bg:#111;--panel:#222;--accent:#00aaff;}
-  body {margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--panel);color:#fff;display:flex;flex-direction:column;align-items:center;padding:18px;}
-  h1 {margin:6px 0 14px 0;}
-  .controls {display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;}
-  label {font-size:14px;}
-  input[type="number"] {width:60px;padding:4px;border-radius:4px;border:none;text-align:center;}
-  input[type="range"] {width:180px;}
-  button {background:var(--accent);color:#04111a;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;}
-  button:hover {opacity:.95;}
-  #gameArea {position:relative;margin-top:12px;}
-  canvas {background:var(--bg);border:3px solid var(--accent);border-radius:8px;display:block;}
-  #hud {margin-top:10px;display:flex;gap:12px;align-items:center;}
-  #overlay {position:absolute;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;display:none;}
-  #overlayText {font-size:48px;margin-bottom:12px;}
-  #calcPanel {font-size:12px;line-height:1.2;white-space:pre;max-height:200px;overflow:auto;margin-top:8px;width:640px;max-width:90%;}
+:root {--bg:#111;--panel:#222;--accent:#00aaff;}
+body {
+  margin:0;font-family:Arial,Helvetica,sans-serif;
+  background:var(--panel);color:#fff;
+  display:flex;flex-direction:column;align-items:center;
+  padding:12px;
+}
+h1 {margin:6px 0 14px 0;font-size:1.5rem;text-align:center;}
+.controls {
+  display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;
+}
+label {font-size:14px;}
+input[type="number"] {width:60px;padding:6px;border-radius:6px;border:none;text-align:center;}
+input[type="range"] {width:140px;}
+button {
+  background:var(--accent);color:#04111a;border:none;padding:10px 14px;
+  border-radius:8px;font-size:14px;cursor:pointer;
+}
+button:hover {opacity:.95;}
+#gameArea {position:relative;margin-top:12px;width:100%;max-width:600px;}
+canvas {background:var(--bg);border:3px solid var(--accent);border-radius:8px;display:block;width:100%;height:auto;}
+#hud {margin-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center;}
+#overlay {
+  position:absolute;left:0;top:0;width:100%;height:100%;
+  background:rgba(0,0,0,0.75);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:5;display:none;text-align:center;
+}
+#overlayText {font-size:2rem;margin-bottom:12px;}
+#calcPanel {
+  font-size:12px;line-height:1.2;white-space:pre;
+  max-height:200px;overflow:auto;margin-top:8px;width:90%;
+}
 </style>
 </head>
 <body>
@@ -38,7 +57,6 @@
   <button id="pauseBtn">Pause</button>
   <button id="trainBtn">Train</button>
   <button id="toggleCalcBtn">Show AI Calculations</button>
-  <button id="clearDataBtn">Clear Learning Data</button>
 </div>
 
 <div id="gameArea">
@@ -53,11 +71,10 @@
 
 <div id="calcPanel" style="display:none"></div>
 
-<!-- Sounds -->
 <audio id="eatSound" src="/sound/eated.mp3"></audio>
 <audio id="gameOverSound" src="/sound/gameover.mp3"></audio>
-
 <script src="https://cdn.jsdelivr.net/npm/ldstring@1.2.0/ldstring.min.js"></script>
+
 <script>
 // ----- Elements -----
 const canvas = document.getElementById('canvas');
@@ -77,18 +94,17 @@ const pauseBtn = document.getElementById('pauseBtn');
 const trainBtn = document.getElementById('trainBtn');
 const calcPanel = document.getElementById('calcPanel');
 const toggleCalcBtn = document.getElementById('toggleCalcBtn');
-const clearDataBtn = document.getElementById('clearDataBtn');
 const eatSound = document.getElementById('eatSound');
 const gameOverSound = document.getElementById('gameOverSound');
 
 // ----- Config -----
-let box = 32, gridSize, appleCount, snake, apples, dir, gameTimer=null, intervalMs=120, score=0;
+let box=32, gridSize, appleCount, snake, apples, dir, lastTick=0, intervalMs=120, score=0;
 let paused=false, trainingEnabled=false;
 let debugPaths=[], debugScores=[];
 const DIRS={UP:[0,-1],DOWN:[0,1],LEFT:[-1,0],RIGHT:[1,0]};
 let learningData={}, tempLearning={};
 let avgScore=0, gamesPlayed=0;
-const batchSize = 5000;
+const batchSize=5000;
 
 // ----- Utils -----
 function keyOf(x,y){return `${x},${y}`;}
@@ -98,9 +114,9 @@ function collidesWithSnake(x,y){return snake.some(s=>s.x===x && s.y===y);}
 function setupCanvas(){
   gridSize = Math.max(5,Math.min(50,parseInt(mapSizeInput.value)||15));
   appleCount = Math.max(1,Math.min(20,parseInt(appleInput.value)||5));
-  box = Math.max(12,Math.floor(640/gridSize));
+  box = Math.floor(Math.min(window.innerWidth*0.9,600)/gridSize);
   canvas.width = canvas.height = box*gridSize;
-  calcPanel.style.width = Math.min(640, box*gridSize) + 'px';
+  calcPanel.style.width = canvas.width+'px';
 }
 
 // ----- Spawn apple -----
@@ -116,7 +132,7 @@ function spawnApple(){
   }
 }
 
-// ----- A* and AI (unchanged) -----
+// ----- AI functions -----
 function floodFillCount(sx,sy,snakeBody,limit=1000){
   const visited=new Set(), bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
   const q=[{x:sx,y:sy}]; let cnt=0;
@@ -208,8 +224,12 @@ function chooseAIMove(){
 function getStateKey(){return `${snake[0].x},${snake[0].y}|${apples.map(a=>`${a.x},${a.y}`).join('|')}|${snake.length}`;}
 
 // ----- Tick -----
-async function tick(){
-  if(paused) return;
+async function tick(time){
+  if(!lastTick) lastTick=time;
+  if(paused) { lastTick=time; requestAnimationFrame(tick); return; }
+  if(time-lastTick < intervalMs) { requestAnimationFrame(tick); return; }
+  lastTick=time;
+
   dir=chooseAIMove();
   const dxy=DIRS[dir], nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1];
   const newHead={x:nx,y:ny};
@@ -222,28 +242,32 @@ async function tick(){
       break;
     }
   }
+
   if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
-    if(gameTimer){ clearInterval(gameTimer); gameTimer=null; }
     overlayText.textContent=`You Died! Score: ${score}`;
     overlay.style.display='flex';
     gameOverSound.play();
     gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
     if(trainingEnabled) autoRetry();
+    requestAnimationFrame(tick);
     return;
   }
+
   snake.unshift(newHead); if(!ate) snake.pop();
   if(snake.length>=gridSize*gridSize){
-    if(gameTimer){ clearInterval(gameTimer); gameTimer=null; }
     overlayText.textContent='You Won!';
     overlay.style.display='flex';
     gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
     if(trainingEnabled) autoRetry();
+    requestAnimationFrame(tick);
     return;
   }
+
   drawEverything();
   if(!trainingEnabled) await saveLearningData();
+  requestAnimationFrame(tick);
 }
 
 // ----- Draw -----
@@ -290,21 +314,33 @@ overlayBtn.addEventListener('click',()=>initGame());
 speedRange.addEventListener('input',()=>{
   intervalMs=parseInt(speedRange.value);
   speedVal.textContent=intervalMs+'ms';
-  if(!trainingEnabled && gameTimer){ clearInterval(gameTimer); gameTimer=setInterval(tick,intervalMs); }
 });
 pauseBtn.addEventListener('click',()=>paused=!paused);
 toggleCalcBtn.addEventListener('click',()=>{calcPanel.style.display=calcPanel.style.display==='none'?'block':'none'; drawEverything();});
 
+// ----- Mobile Swipe Controls -----
+let touchStartX=0, touchStartY=0;
+canvas.addEventListener('touchstart', e=>{
+  const t = e.touches[0];
+  touchStartX=t.clientX; touchStartY=t.clientY;
+}, {passive:true});
+canvas.addEventListener('touchend', e=>{
+  const t = e.changedTouches[0];
+  const dx=t.clientX-touchStartX, dy=t.clientY-touchStartY;
+  if(Math.abs(dx)>Math.abs(dy)){
+    if(dx>0 && dir!=='LEFT') dir='RIGHT';
+    else if(dx<0 && dir!=='RIGHT') dir='LEFT';
+  } else {
+    if(dy>0 && dir!=='UP') dir='DOWN';
+    else if(dy<0 && dir!=='DOWN') dir='UP';
+  }
+}, {passive:true});
+
 // ----- Training -----
 trainBtn.addEventListener('click',()=>{
   trainingEnabled=!trainingEnabled;
-  if(trainingEnabled){ initGame(); trainingLoop(); }
+  if(trainingEnabled) initGame();
 });
-function trainingLoop(){
-  if(!trainingEnabled) return;
-  tick();
-  requestAnimationFrame(trainingLoop);
-}
 
 // ----- Learning Data Cloud -----
 async function saveLearningData(){
@@ -327,11 +363,6 @@ async function loadLearningData(){
   }catch(e){}
 }
 
-clearDataBtn.addEventListener('click',async()=>{
-  learningData={}; tempLearning={};
-  await fetch('/.netlify/functions/learning', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({clear:true})});
-});
-
 // ----- Init -----
 async function initGame(){
   await loadLearningData();
@@ -340,11 +371,7 @@ async function initGame(){
   apples=[]; score=0; dir='RIGHT';
   scoreEl.textContent=score; overlay.style.display='none';
   while(apples.length<appleCount) spawnApple();
-  if(!trainingEnabled){
-    if(gameTimer) clearInterval(gameTimer);
-    gameTimer=setInterval(tick,intervalMs);
-  }
-  drawEverything();
+  requestAnimationFrame(tick);
 }
 
 initGame();
