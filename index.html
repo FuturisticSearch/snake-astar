@@ -80,14 +80,14 @@ const eatSound = document.getElementById('eatSound');
 const gameOverSound = document.getElementById('gameOverSound');
 
 // ----- Config -----
-let box=32, gridSize, appleCount, snake, apples, dir='RIGHT', lastTick=null, intervalMs=120, score=0;
+let box=32, gridSize, appleCount, snake, apples, dir, lastTick=0, intervalMs=120, score=0;
 let paused=false, trainingEnabled=false;
 let debugPaths=[], debugScores=[];
 const DIRS={UP:[0,-1],DOWN:[0,1],LEFT:[-1,0],RIGHT:[1,0]};
 let learningData={}, tempLearning={};
 let avgScore=0, gamesPlayed=0;
 const batchSize=5000;
-let tickCount=0;
+let tickCount = 0;
 
 // ----- Utils -----
 function keyOf(x,y){return `${x},${y}`;}
@@ -115,7 +115,7 @@ function spawnApple(){
   }
 }
 
-// ----- AI functions -----
+// ----- AI functions (A* intact) -----
 function floodFillCount(sx,sy,snakeBody,limit=1000){
   const visited=new Set(), bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
   const q=[{x:sx,y:sy}]; let cnt=0;
@@ -208,11 +208,11 @@ function getStateKey(){return `${snake[0].x},${snake[0].y}|${apples.map(a=>`${a.
 
 // ----- Tick -----
 function tick(){
-  if(!dir) dir='RIGHT';
-  if(!trainingEnabled && overlay.style.display==='flex') return;
+  if(paused) return;
+
+  dir=chooseAIMove();
   const dxy=DIRS[dir], nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1];
   const newHead={x:nx,y:ny};
-  dir = chooseAIMove() || 'RIGHT';
   let ate=false;
   for(let i=0;i<apples.length;i++){
     if(apples[i].x===nx && apples[i].y===ny){
@@ -228,18 +228,7 @@ function tick(){
     overlayText.textContent=`You Died! Score: ${score}`;
     overlay.style.display='flex';
     gameOverSound.play();
-    gamesPlayed++;
-    avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
-    avgScoreEl.textContent=avgScore.toFixed(2);
-    return;
-  }
-
-  if(snake.length>=gridSize*gridSize){
-    if(lastTick){ clearInterval(lastTick); lastTick=null; }
-    overlayText.textContent='You Won!';
-    overlay.style.display='flex';
-    gamesPlayed++;
-    avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
+    gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
     return;
   }
@@ -247,7 +236,16 @@ function tick(){
   snake.unshift(newHead);
   if(!ate) snake.pop();
 
-  if(!trainingEnabled || tickCount % 10 === 0) drawEverything();
+  if(snake.length>=gridSize*gridSize){
+    if(lastTick){ clearInterval(lastTick); lastTick=null; }
+    overlayText.textContent='You Won!';
+    overlay.style.display='flex';
+    gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
+    avgScoreEl.textContent=avgScore.toFixed(2);
+    return;
+  }
+
+  drawEverything();
 }
 
 // ----- Draw -----
@@ -279,48 +277,25 @@ function drawEverything(){
   }
 }
 
-// ----- Auto Retry -----
-function autoRetry(){ if(trainingEnabled) setTimeout(initGame,0); }
-
-// ----- Controls -----
-document.addEventListener('keydown',e=>{
-  if(e.key==='ArrowUp' && dir!=='DOWN') dir='UP';
-  if(e.key==='ArrowDown' && dir!=='UP') dir='DOWN';
-  if(e.key==='ArrowLeft' && dir!=='RIGHT') dir='LEFT';
-  if(e.key==='ArrowRight' && dir!=='LEFT') dir='RIGHT';
-});
-playAgainBtn.addEventListener('click',()=>initGame());
-overlayBtn.addEventListener('click',()=>initGame());
-speedRange.addEventListener('input',()=>{
-  intervalMs=parseInt(speedRange.value);
-  speedVal.textContent=intervalMs+'ms';
-});
-pauseBtn.addEventListener('click',()=>paused=!paused);
-toggleCalcBtn.addEventListener('click',()=>{calcPanel.style.display=calcPanel.style.display==='none'?'block':'none'; drawEverything();});
-
 // ----- Training -----
 trainBtn.addEventListener('click',()=>{
   trainingEnabled=!trainingEnabled;
   trainBtn.classList.toggle('active', trainingEnabled);
-  if(trainingEnabled){ 
+  if(trainingEnabled){
     initGame();
-    trainingLoopChunk(20);
+    requestAnimationFrame(trainingLoop);
   } else {
     saveLearningData();
   }
 });
 
-function trainingLoopChunk(maxTicks=20){
-  let ticks=0;
-  while(ticks<maxTicks && trainingEnabled){
-    tick();
-    tickCount++;
-    ticks++;
-  }
-  if(trainingEnabled) requestAnimationFrame(()=>trainingLoopChunk(maxTicks));
+function trainingLoop(){
+  if(!trainingEnabled) return;
+  for(let i=0;i<5;i++) tick(); // do multiple ticks per frame
+  requestAnimationFrame(trainingLoop);
 }
 
-// ----- Learning Data Cloud -----
+// ----- Learning Cloud -----
 async function saveLearningData(){
   if(Object.keys(tempLearning).length===0) return;
   const dataStr = LDString.compress(JSON.stringify(tempLearning));
@@ -341,29 +316,37 @@ async function loadLearningData(){
   }catch(e){}
 }
 
+// ----- Controls -----
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowUp' && dir!=='DOWN') dir='UP';
+  if(e.key==='ArrowDown' && dir!=='UP') dir='DOWN';
+  if(e.key==='ArrowLeft' && dir!=='RIGHT') dir='LEFT';
+  if(e.key==='ArrowRight' && dir!=='LEFT') dir='RIGHT';
+});
+playAgainBtn.addEventListener('click',()=>initGame());
+overlayBtn.addEventListener('click',()=>initGame());
+speedRange.addEventListener('input',()=>{
+  intervalMs=parseInt(speedRange.value);
+  speedVal.textContent=intervalMs+'ms';
+});
+pauseBtn.addEventListener('click',()=>paused=!paused);
+toggleCalcBtn.addEventListener('click',()=>{calcPanel.style.display=calcPanel.style.display==='none'?'block':'none'; drawEverything();});
+
 // ----- Init -----
 async function initGame(){
   await loadLearningData();
   setupCanvas();
-  snake = [{x: Math.floor(gridSize/2), y: Math.floor(gridSize/2)}];
-  apples = [];
-  score = 0;
-  dir = 'RIGHT';
-  tickCount = 0;
-  paused = false;
-  overlay.style.display = 'none';
-
-  while(apples.length < appleCount) spawnApple();
-
+  snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];
+  apples=[]; score=0; dir='RIGHT'; tickCount=0;
+  scoreEl.textContent=score; overlay.style.display='none';
+  while(apples.length<appleCount) spawnApple();
   if(!trainingEnabled){
     if(lastTick) clearInterval(lastTick);
-    lastTick = setInterval(() => { if(!paused) tick(); }, intervalMs);
+    lastTick=setInterval(()=>tick(), intervalMs);
   }
-
   drawEverything();
 }
 
-// ----- Start -----
 initGame();
 </script>
 </body>
