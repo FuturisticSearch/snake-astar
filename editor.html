@@ -56,15 +56,13 @@ canvas {background:var(--bg);border:3px solid var(--accent);border-radius:8px;di
 
 <audio id="eatSound" src="/sound/eated.mp3"></audio>
 <audio id="gameOverSound" src="/sound/gameover.mp3"></audio>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.36.0/dist/supabase.min.js"></script>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.36.0/dist/umd/supabase.min.js"></script>
 <script>
 // ----- Supabase Setup -----
-const supabaseUrl = "https://akmabafqvtltrrwvxmzz.storage.supabase.co";
-const supabaseKey = "3c98e1023235f1f14751f89490f3003b";
+const supabaseUrl = 'https://akmabafqvtltrrwvxmzz.supabase.co';
+const supabaseKey = '3c98e1023235f1f14751f89490f3003b'; // anon/public key
 const supabase = supabase.createClient(supabaseUrl, supabaseKey);
-const bucketName = "snake-learning"; // create this bucket in Supabase
-const fileName = "snakeLearning.json";
 
 // ----- Elements -----
 const canvas = document.getElementById('canvas');
@@ -109,7 +107,7 @@ function setupCanvas(){
   calcPanel.style.width = canvas.width+'px';
 }
 
-// ----- Spawn apple with yellow fruit -----
+// ----- Spawn apple -----
 function spawnApple(){
   let attempts=0;
   while(attempts<2000){
@@ -123,7 +121,7 @@ function spawnApple(){
   }
 }
 
-// ----- AI + A* Pathfinding -----
+// ----- AI + Pathfinding -----
 function floodFillCount(sx,sy,snakeBody,limit=1000){
   const visited=new Set(), bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
   const q=[{x:sx,y:sy}]; let cnt=0;
@@ -146,7 +144,7 @@ function aStarPath(start,target,snakeBody){
   open.set(keyOf(start.x,start.y), {x:start.x,y:start.y,g:0,f:h(start.x,start.y),parent:null,move:null});
   while(open.size){
     let current, currentK;
-    for(const [k,n] of open){if(!current || n.f<current.f){current=n; currentK=k;}}
+    for(const [k,n] of open){if(!current || n.f<current.f){current=n; currentK=k;} }
     open.delete(currentK); closed.add(currentK);
     if(current.x===target.x && current.y===target.y){
       const out=[]; let node=current;
@@ -213,28 +211,41 @@ function chooseAIMove(){
 function getStateKey(){return `${snake[0].x},${snake[0].y}|${apples.map(a=>`${a.x},${a.y}`).join('|')}|${snake.length}`;}
 function autoRetry(){ if(trainingEnabled) setTimeout(initGame,0); }
 
-// --- Continue with Tick, Draw, Training, Learning, Init... ---
-// ----- Tick -----
-function tick(){
-  if(paused) return;
+// ----- Supabase Learning Data -----
+async function saveLearningData(){
+  if(Object.keys(tempLearning).length === 0) return;
+  try{
+    const { data, error } = await supabase.from('snake_learning').insert([{ json: tempLearning }]);
+    if(error) console.error('Supabase insert error:', error);
+    else Object.assign(learningData,tempLearning);
+    tempLearning = {};
+  } catch(e){ console.error(e); }
+}
 
+async function loadLearningData(){
+  try{
+    const { data, error } = await supabase.from('snake_learning').select('json').order('id',{ascending:false}).limit(1);
+    if(data && data.length>0) learningData = data[0].json;
+  }catch(e){ console.error(e); }
+}
+
+// ----- Tick, Draw, Training, Controls (same as before) -----
+function tick(){ 
+  if(paused) return;
   dir=chooseAIMove();
   const dxy=DIRS[dir], nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1];
   const newHead={x:nx,y:ny};
   let ate=false, ateYellow=false;
-
   for(let i=0;i<apples.length;i++){
     if(apples[i].x===nx && apples[i].y===ny){
       if(apples[i].type==='yellow'){ score+=5; ateYellow=true; }
-      else{ score++; }
+      else score++;
       scoreEl.textContent=score;
       apples.splice(i,1); spawnApple();
       eatSound.play();
-      ate=true;
-      break;
+      ate=true; break;
     }
   }
-
   if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
     if(lastTick){ clearInterval(lastTick); lastTick=null; }
     overlayText.textContent=`You Died! Score: ${score}`;
@@ -242,30 +253,23 @@ function tick(){
     gameOverSound.play();
     gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
-    autoRetry();
-    return;
+    autoRetry(); return;
   }
-
   snake.unshift(newHead);
   if(!ate) snake.pop();
-
   if(snake.length>=gridSize*gridSize){
     if(lastTick){ clearInterval(lastTick); lastTick=null; }
     overlayText.textContent='You Won!';
     overlay.style.display='flex';
     gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
-    autoRetry();
-    return;
+    autoRetry(); return;
   }
-
-  if(!trainingEnabled || tickCount % 10 === 0) drawEverything(); // skip frames during training
+  if(!trainingEnabled || tickCount%10===0) drawEverything();
 }
 
-// ----- Draw -----
 function drawEverything(){
   ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
-
   debugPaths.forEach(dp=>{
     let x=snake[0].x, y=snake[0].y;
     dp.path.forEach(mv=>{
@@ -274,21 +278,18 @@ function drawEverything(){
       ctx.fillRect(x*box,y*box,box,box);
     });
   });
-
   apples.forEach(a=>{
     if(a.type==='yellow'){ ctx.fillStyle='#ffff00'; ctx.strokeStyle='#aaaa00'; }
     else { ctx.fillStyle='#ff4d4d'; ctx.strokeStyle='#8b0000'; }
     ctx.fillRect(a.x*box,a.y*box,box,box);
     ctx.strokeRect(a.x*box+1,a.y*box+1,box-2,box-2);
   });
-
   for(let i=snake.length-1;i>=0;i--){
     const s=snake[i];
     ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff';
     ctx.fillRect(s.x*box,s.y*box,box,box);
     ctx.strokeStyle='#003f66'; ctx.strokeRect(s.x*box+1,s.y*box+1,box-2,box-2);
   }
-
   if(calcPanel.style.display!=='none'){
     calcPanel.textContent='';
     debugScores.forEach(dp=>{
@@ -296,52 +297,6 @@ function drawEverything(){
     });
   }
 }
-
-// ----- Training -----
-trainBtn.addEventListener('click',()=>{
-  trainingEnabled=!trainingEnabled;
-  trainBtn.classList.toggle('active', trainingEnabled);
-  if(trainingEnabled){
-    initGame();
-    trainingLoopChunk(20);
-  } else {
-    saveLearningData();
-  }
-});
-
-function trainingLoopChunk(maxTicks=20){
-  let ticks=0;
-  while(ticks<maxTicks && trainingEnabled){
-    tick();
-    tickCount++;
-    ticks++;
-  }
-  if(trainingEnabled) requestAnimationFrame(()=>trainingLoopChunk(maxTicks));
-}
-
-// ----- Learning Data Cloud -----
-async function saveLearningData(){
-  if(Object.keys(tempLearning).length === 0) return;
-  try{
-    const newData = { ...learningData, ...tempLearning };
-    const blob = new Blob([JSON.stringify(newData)], { type: "application/json" });
-    const { error } = await supabase.storage.from(bucketName).upload(fileName, blob, { upsert: true });
-    if(error) throw error;
-    Object.assign(learningData, tempLearning);
-    tempLearning={};
-    console.log("Learning data saved!");
-  }catch(err){ console.error("Failed to save data:", err); }
-}
-
-async function loadLearningData(){
-  try{
-    const { data, error } = await supabase.storage.from(bucketName).download(fileName);
-    if(error){ learningData={}; return; }
-    const text = await data.text();
-    learningData = JSON.parse(text||"{}");
-  }catch(err){ console.error("Failed to load data:", err); learningData={}; }
-}
-
 
 // ----- Controls -----
 document.addEventListener('keydown',e=>{
@@ -352,43 +307,33 @@ document.addEventListener('keydown',e=>{
 });
 playAgainBtn.addEventListener('click',()=>initGame());
 overlayBtn.addEventListener('click',()=>initGame());
-speedRange.addEventListener('input',()=>{
-  intervalMs=parseInt(speedRange.value);
-  speedVal.textContent=intervalMs+'ms';
-});
+speedRange.addEventListener('input',()=>{ intervalMs=parseInt(speedRange.value); speedVal.textContent=intervalMs+'ms'; });
 pauseBtn.addEventListener('click',()=>paused=!paused);
-toggleCalcBtn.addEventListener('click',()=>{calcPanel.style.display=calcPanel.style.display==='none'?'block':'none'; drawEverything();});
+trainBtn.addEventListener('click',()=>{
+  trainingEnabled=!trainingEnabled;
+  trainBtn.classList.toggle('active',trainingEnabled);
+  if(trainingEnabled){ initGame(); trainingLoopChunk(20); }
+  else saveLearningData();
+});
+toggleCalcBtn.addEventListener('click',()=>{ calcPanel.style.display=calcPanel.style.display==='none'?'block':'none'; drawEverything(); });
+
+function trainingLoopChunk(maxTicks=20){
+  let ticks=0;
+  while(ticks<maxTicks && trainingEnabled){ tick(); tickCount++; ticks++; }
+  if(trainingEnabled) requestAnimationFrame(()=>trainingLoopChunk(maxTicks));
+}
 
 // ----- Init -----
 async function initGame(){
   await loadLearningData();
   setupCanvas();
-
-  // Start snake at size 2
-  snake = [
-    {x: Math.floor(gridSize/2)-1, y: Math.floor(gridSize/2)},
-    {x: Math.floor(gridSize/2), y: Math.floor(gridSize/2)}
-  ];
-
-  apples = [];
-  score = 0;
-  dir = 'RIGHT';
-  tickCount = 0;
-
-  scoreEl.textContent = score;
-  overlay.style.display = 'none';
-
-  while(apples.length < appleCount) spawnApple();
-
-  if(!trainingEnabled){
-    if(lastTick) clearInterval(lastTick);
-    lastTick = setInterval(()=>{ if(!paused) tick(); }, intervalMs);
-  }
-
+  snake = [{x: Math.floor(gridSize/2)-1, y: Math.floor(gridSize/2)}, {x: Math.floor(gridSize/2), y: Math.floor(gridSize/2)}];
+  apples = []; score=0; dir='RIGHT'; tickCount=0;
+  scoreEl.textContent=score; overlay.style.display='none';
+  while(apples.length<appleCount) spawnApple();
+  if(!trainingEnabled){ if(lastTick) clearInterval(lastTick); lastTick=setInterval(()=>{if(!paused) tick();}, intervalMs); }
   drawEverything();
 }
-
-// Initialize game on page load
 initGame();
 </script>
 </body>
