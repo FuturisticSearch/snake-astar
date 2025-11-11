@@ -56,7 +56,6 @@ canvas {background:var(--bg);border:3px solid var(--accent);border-radius:8px;di
 
 <audio id="eatSound" src="/sound/eated.mp3"></audio>
 <audio id="gameOverSound" src="/sound/gameover.mp3"></audio>
-<script src="https://cdn.jsdelivr.net/npm/ldstring@latest/ldstring.min.js"></script>
 
 <script>
 // ----- Elements -----
@@ -314,24 +313,35 @@ function trainingLoopChunk(maxTicks=20){
 
 // ----- Learning Data Cloud -----
 async function saveLearningData(){
-  if(Object.keys(tempLearning).length===0) return;
-  const dataStr = LDString.compress(JSON.stringify(tempLearning));
+  if(Object.keys(tempLearning).length === 0) return;
+
+  // No compression, send JSON directly
+  const dataStr = JSON.stringify(tempLearning);
   const chunks = [];
-  for(let i=0;i<dataStr.length;i+=batchSize) chunks.push(dataStr.slice(i,i+batchSize));
-  for(const chunk of chunks){
-    await fetch('/.netlify/functions/learning', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({chunk})});
+  for(let i = 0; i < dataStr.length; i += batchSize) {
+    chunks.push(dataStr.slice(i, i + batchSize));
   }
+
+  for(const chunk of chunks){
+    await fetch('/.netlify/functions/learning', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chunk})
+    });
+  }
+
   Object.assign(learningData, tempLearning);
-  tempLearning={};
+  tempLearning = {};
 }
 
 async function loadLearningData(){
   try{
     const res = await fetch('/.netlify/functions/learning');
     const txt = await res.text();
-    if(txt) learningData = JSON.parse(LDString.decompress(txt));
+    if(txt) learningData = JSON.parse(txt); // directly parse JSON
   }catch(e){}
 }
+
 
 // ----- Controls -----
 document.addEventListener('keydown',e=>{
