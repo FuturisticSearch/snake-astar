@@ -16,7 +16,15 @@ button {background:var(--accent);color:#04111a;border:none;padding:10px 14px;bor
 button:hover {opacity:.95;}
 button.active {background:#00ff88;color:#04111a;}
 #gameArea {position:relative;margin-top:12px;width:100%;max-width:600px;}
-canvas {background:var(--bg);border:3px solid var(--accent);border-radius:8px;display:block;width:100%;height:auto;}
+canvas {
+  background: var(--bg);
+  border: 3px solid var(--accent);
+  border-radius: 8px;
+  display: block;
+  width: auto;       /* remove stretching */
+  height: auto;
+}
+
 #hud {margin-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center;}
 #overlay {position:absolute;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;display:none;text-align:center;}
 #overlayText {font-size:2rem;margin-bottom:12px;}
@@ -103,9 +111,13 @@ function setupCanvas(){
   gridSize = Math.max(5,Math.min(50,parseInt(mapSizeInput.value)||15));
   appleCount = Math.max(1,Math.min(20,parseInt(appleInput.value)||5));
   box = Math.floor(Math.min(window.innerWidth*0.9,600)/gridSize);
-  canvas.width = canvas.height = box*gridSize;
+  canvas.width = box * gridSize;
+  canvas.height = box * gridSize;
+  canvas.style.width = canvas.width + 'px';
+  canvas.style.height = canvas.height + 'px';
   calcPanel.style.width = canvas.width+'px';
 }
+
 
 // ----- Spawn apple -----
 function spawnApple(){
