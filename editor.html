@@ -15,7 +15,6 @@
   button:hover {opacity:.95;}
   #gameArea {position:relative;margin-top:12px;}
   canvas {background:var(--bg);border:3px solid var(--accent);border-radius:8px;display:block;}
-  #hud {margin-top:10px;display:flex;gap:12px;align-items:center;}
   #overlay {position:absolute;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;display:none;}
   #overlayText {font-size:48px;margin-bottom:12px;}
   #calcPanel {font-size:12px;line-height:1.2;white-space:pre;max-height:200px;overflow:auto;margin-top:8px;width:640px;max-width:90%;}
@@ -25,16 +24,17 @@
 <h1>Blue Snake AI</h1>
 
 <div class="controls">
-  <label>Map size: <input id="mapSize" type="number" min="5" max="50" value="15"></label>
-  <label>Apples: <input id="appleCount" type="number" min="1" max="20" value="5"></label>
+  <label>Map size: <input id="mapSize" type="number" min="5" max="80" value="15"></label>
+  <label>Apples: <input id="appleCount" type="number" min="1" max="50" value="5"></label>
   <label>Mode: 
     <select id="aiMode">
       <option value="safe">Safe</option>
       <option value="greedy">Greedy</option>
+      <!-- *** ADDED *** -->
+      <option value="hamiltonian">Hamiltonian</option>
     </select>
   </label>
   <label>Speed: <input id="speed" type="range" min="30" max="300" value="120"> <span id="speedVal">120ms</span></label>
-  <label>Auto Mode: <input type="checkbox" id="autoModeToggle"></label>
   <button id="playAgain">Play Again</button>
   <button id="pauseBtn">Pause</button>
   <button id="trainBtn">Train</button>
@@ -54,19 +54,16 @@
 
 <div id="calcPanel" style="display:none"></div>
 
-<!-- Sounds -->
-<audio id="eatSound" src="/sounds/eated.mp3"></audio>
-<audio id="gameOverSound" src="/sounds/game over.mp3"></audio>
+<audio id="eatSound" src="/sound/eated.mp3"></audio>
+<audio id="gameOverSound" src="/sound/gameover.mp3"></audio>
 
 <script src="https://cdn.jsdelivr.net/npm/ldstring@1.2.0/ldstring.min.js"></script>
 <script>
-// ----- Elements -----
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const mapSizeInput = document.getElementById('mapSize');
 const appleInput = document.getElementById('appleCount');
 const aiModeSelect = document.getElementById('aiMode');
-const autoModeToggle = document.getElementById('autoModeToggle');
 const playAgainBtn = document.getElementById('playAgain');
 const overlay = document.getElementById('overlay');
 const overlayText = document.getElementById('overlayText');
@@ -83,7 +80,6 @@ const clearDataBtn = document.getElementById('clearDataBtn');
 const eatSound = document.getElementById('eatSound');
 const gameOverSound = document.getElementById('gameOverSound');
 
-// ----- Config -----
 let box = 32, gridSize, appleCount, snake, apples, dir, gameTimer=null, intervalMs=120, score=0;
 let paused=false, trainingEnabled=false;
 let debugPaths=[], debugScores=[];
@@ -92,11 +88,9 @@ let learningData={}, tempLearning={};
 let avgScore=0, gamesPlayed=0;
 const batchSize = 5000;
 
-// ----- Utils -----
 function keyOf(x,y){return `${x},${y}`;}
 function collidesWithSnake(x,y){return snake.some(s=>s.x===x && s.y===y);}
 
-// ----- Canvas setup -----
 function setupCanvas(){
   gridSize = Math.max(5,Math.min(50,parseInt(mapSizeInput.value)||15));
   appleCount = Math.max(1,Math.min(20,parseInt(appleInput.value)||5));
@@ -105,7 +99,6 @@ function setupCanvas(){
   calcPanel.style.width = Math.min(640, box*gridSize) + 'px';
 }
 
-// ----- Spawn apple -----
 function spawnApple(){
   let attempts=0;
   while(attempts<2000){
@@ -118,7 +111,26 @@ function spawnApple(){
   }
 }
 
-// ----- A* and AI (unchanged) -----
+// *** ADDED *** HAMILTONIAN CYCLE ***
+let hamiltonianPath = [];
+
+function buildHamiltonian(){
+  hamiltonianPath = [];
+  for(let y=0; y<gridSize; y++){
+    if(y % 2 === 0){
+      for(let x=0; x<gridSize; x++) hamiltonianPath.push({x,y});
+    } else {
+      for(let x=gridSize-1; x>=0; x--) hamiltonianPath.push({x,y});
+    }
+  }
+}
+
+function nextOnHamiltonian(x,y){
+  const i = hamiltonianPath.findIndex(n=>n.x===x && n.y===y);
+  return hamiltonianPath[(i+1) % hamiltonianPath.length];
+}
+// *** END ADD ***
+
 function floodFillCount(sx,sy,snakeBody,limit=1000){
   const visited=new Set(), bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
   const q=[{x:sx,y:sy}]; let cnt=0;
@@ -128,8 +140,10 @@ function floodFillCount(sx,sy,snakeBody,limit=1000){
     if(p.x<0||p.x>=gridSize||p.y<0||p.y>=gridSize) continue;
     if(bodySet.has(k)) continue;
     visited.add(k); cnt++;
-    q.push({x:p.x+1,y:p.y}); q.push({x:p.x-1,y:p.y});
-    q.push({x:p.x,y:p.y+1}); q.push({x:p.x,y:p.y-1});
+    q.push({x:p.x+1,y:p.y});
+    q.push({x:p.x-1,y:p.y});
+    q.push({x:p.x,y:p.y+1});
+    q.push({x:p.x,y:p.y-1});
   }
   return cnt;
 }
@@ -170,18 +184,47 @@ function safeFallbackMove(){
   return dir;
 }
 
-// ----- Auto Mode Adjustment -----
-function adjustModeAutomatically() {
-  if(!autoModeToggle.checked) return;
-  // Example dynamic logic: based on map size and snake length
-  const scoreFactor = score + 1;
-  const density = (gridSize * gridSize) / (apples.length + 1);
-  if(density * scoreFactor > 200) aiModeSelect.value = 'greedy';
-  else aiModeSelect.value = 'safe';
-}
-
 function chooseAIMove(){
-  adjustModeAutomatically(); // <-- Auto Mode applied every tick
+  // *** ADDED HAMILTONIAN MODE ***
+  if(aiModeSelect.value === 'hamiltonian'){
+    const head = snake[0];
+
+    // Try safe apple shortcut
+    let best = null, bestDist = Infinity;
+    for(const a of apples){
+      const d = Math.abs(head.x - a.x) + Math.abs(head.y - a.y);
+      if(d < bestDist){ bestDist = d; best = a; }
+    }
+    if(best){
+      const dx = best.x - head.x;
+      const dy = best.y - head.y;
+      const tryMoves = [];
+      if(Math.abs(dx) > Math.abs(dy)){
+        tryMoves.push(dx>0?'RIGHT':'LEFT');
+        tryMoves.push(dy>0?'DOWN':'UP');
+      } else {
+        tryMoves.push(dy>0?'DOWN':'UP');
+        tryMoves.push(dx>0?'RIGHT':'LEFT');
+      }
+      for(const mv of tryMoves){
+        const dxy=DIRS[mv], nx=head.x+dxy[0], ny=head.y+dxy[1];
+        if(nx>=0 && nx<gridSize && ny>=0 && ny<gridSize && !collidesWithSnake(nx,ny)){
+          return mv;
+        }
+      }
+    }
+
+    // Follow Hamiltonian cycle
+    const nxt = nextOnHamiltonian(head.x, head.y);
+    const dx=nxt.x-head.x, dy=nxt.y-head.y;
+    if(dx===1) return 'RIGHT';
+    if(dx===-1) return 'LEFT';
+    if(dy===1) return 'DOWN';
+    if(dy===-1) return 'UP';
+    return safeFallbackMove();
+  }
+  // *** END ADD ***
+
   debugPaths=[]; debugScores=[];
   const stateKey=getStateKey();
   const forbiddenMoves = learningData[stateKey]||[];
@@ -218,7 +261,8 @@ function chooseAIMove(){
   return bestMove||safeFallbackMove();
 }
 
-// ----- Tick -----
+function getStateKey(){return `${snake[0].x},${snake[0].y}|${apples.map(a=>`${a.x},${a.y}`).join('|')}|${snake.length}`;}
+
 async function tick(){
   if(paused) return;
   dir=chooseAIMove();
@@ -257,7 +301,6 @@ async function tick(){
   if(!trainingEnabled) await saveLearningData();
 }
 
-// ----- Draw -----
 function drawEverything(){
   ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
   debugPaths.forEach(dp=>{
@@ -286,10 +329,8 @@ function drawEverything(){
   }
 }
 
-// ----- Auto Retry -----
 function autoRetry(){ if(trainingEnabled) setTimeout(initGame,0); }
 
-// ----- Controls -----
 document.addEventListener('keydown',e=>{
   if(e.key==='ArrowUp' && dir!=='DOWN') dir='UP';
   if(e.key==='ArrowDown' && dir!=='UP') dir='DOWN';
@@ -306,7 +347,6 @@ speedRange.addEventListener('input',()=>{
 pauseBtn.addEventListener('click',()=>paused=!paused);
 toggleCalcBtn.addEventListener('click',()=>{calcPanel.style.display=calcPanel.style.display==='none'?'block':'none'; drawEverything();});
 
-// ----- Training -----
 trainBtn.addEventListener('click',()=>{
   trainingEnabled=!trainingEnabled;
   if(trainingEnabled){ initGame(); trainingLoop(); }
@@ -317,7 +357,6 @@ function trainingLoop(){
   requestAnimationFrame(trainingLoop);
 }
 
-// ----- Learning Data Cloud -----
 async function saveLearningData(){
   if(Object.keys(tempLearning).length===0) return;
   const dataStr = LDString.compress(JSON.stringify(tempLearning));
@@ -343,7 +382,6 @@ clearDataBtn.addEventListener('click',async()=>{
   await fetch('/.netlify/functions/learning', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({clear:true})});
 });
 
-// ----- Init -----
 async function initGame(){
   await loadLearningData();
   setupCanvas();
@@ -351,6 +389,11 @@ async function initGame(){
   apples=[]; score=0; dir='RIGHT';
   scoreEl.textContent=score; overlay.style.display='none';
   while(apples.length<appleCount) spawnApple();
+
+  // *** ADDED ***
+  buildHamiltonian();
+  // *** END ***
+
   if(!trainingEnabled){
     if(gameTimer) clearInterval(gameTimer);
     gameTimer=setInterval(tick,intervalMs);
