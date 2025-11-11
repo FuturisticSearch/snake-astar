@@ -362,16 +362,19 @@ speedRange.addEventListener('input',()=>{
 pauseBtn.addEventListener('click',()=>paused=!paused);
 toggleCalcBtn.addEventListener('click',()=>{calcPanel.style.display=calcPanel.style.display==='none'?'block':'none'; drawEverything();});
 
-// ----- Init -----
-async function initGame(){
+async function initGame() {
+  console.log("Initializing game...");
   await loadLearningData();
   setupCanvas();
+  
+  console.log("Grid size:", gridSize);
 
-  // Start snake at size 2
   snake = [
-    {x: Math.floor(gridSize/2)-1, y: Math.floor(gridSize/2)},
-    {x: Math.floor(gridSize/2), y: Math.floor(gridSize/2)}
+    { x: Math.floor(gridSize/2)-1, y: Math.floor(gridSize/2) },
+    { x: Math.floor(gridSize/2), y: Math.floor(gridSize/2) }
   ];
+  
+  console.log("Snake initialized:", snake);
 
   apples = [];
   score = 0;
@@ -382,13 +385,13 @@ async function initGame(){
   overlay.style.display = 'none';
 
   while(apples.length < appleCount) spawnApple();
+  
+  drawEverything();
 
-  if(!trainingEnabled){
+  if(!trainingEnabled) {
     if(lastTick) clearInterval(lastTick);
     lastTick = setInterval(()=>{ if(!paused) tick(); }, intervalMs);
   }
-
-  drawEverything();
 }
 
 // Initialize game on page load
