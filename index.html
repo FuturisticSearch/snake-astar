@@ -345,14 +345,34 @@ toggleCalcBtn.addEventListener('click',()=>{calcPanel.style.display=calcPanel.st
 async function initGame(){
   await loadLearningData();
   setupCanvas();
-  snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];
-  apples=[]; score=0; dir='RIGHT'; tickCount=0;
-  scoreEl.textContent=score; overlay.style.display='none';
-  while(apples.length<appleCount) spawnApple();
+
+  // Start snake with 2 segments
+  const startX = Math.floor(gridSize/2);
+  const startY = Math.floor(gridSize/2);
+  snake = [
+    {x: startX, y: startY},          // head
+    {x: startX - 1, y: startY}       // second segment behind head
+  ];
+
+  apples = [];
+  score = 0;
+  dir = 'RIGHT';
+  tickCount = 0;
+
+  scoreEl.textContent = score;
+  overlay.style.display = 'none';
+
+  // Spawn initial apples
+  while(apples.length < appleCount) spawnApple();
+
+  // If not training, start normal interval-based game loop
   if(!trainingEnabled){
     if(lastTick) clearInterval(lastTick);
-    lastTick=setInterval(()=>tick(), intervalMs);
+    lastTick = setInterval(() => {
+      if(!paused) tick();
+    }, intervalMs);
   }
+
   drawEverything();
 }
 
