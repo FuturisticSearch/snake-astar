@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Learning Data Manager</title>
+</head>
+<body>
+  <h1>Learning Data</h1>
+
+  <button id="clearBtn">Clear Data</button>
+  <pre id="dataDisplay"></pre>
+
+  <script>
+    const clearBtn = document.getElementById("clearBtn");
+    const dataDisplay = document.getElementById("dataDisplay");
+
+    // Load current data
+    async function loadData() {
+      try {
+        const res = await fetch("/.netlify/functions/learning");
+        const data = await res.json();
+        dataDisplay.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        dataDisplay.textContent = "Error loading data";
+        console.error(err);
+      }
+    }
+
+    // Clear data via POST
+    clearBtn.addEventListener("click", async () => {
+      if (!confirm("Are you sure you want to clear all data?")) return;
+
+      try {
+        const res = await fetch("/.netlify/functions/learning", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "clear" })
+        });
+        const result = await res.json();
+        alert(result.message || "Data cleared!");
+        loadData(); // refresh display
+      } catch (err) {
+        alert("Failed to clear data");
+        console.error(err);
+      }
+    });
+
+    loadData(); // initial load
+  </script>
+</body>
+</html>
