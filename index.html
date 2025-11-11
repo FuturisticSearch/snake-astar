@@ -6,39 +6,21 @@
 <title>Blue Snake AI</title>
 <style>
 :root {--bg:#111;--panel:#222;--accent:#00aaff;}
-body {
-  margin:0;font-family:Arial,Helvetica,sans-serif;
-  background:var(--panel);color:#fff;
-  display:flex;flex-direction:column;align-items:center;
-  padding:12px;
-}
+body {margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--panel);color:#fff;display:flex;flex-direction:column;align-items:center;padding:12px;}
 h1 {margin:6px 0 14px 0;font-size:1.5rem;text-align:center;}
-.controls {
-  display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;
-}
+.controls {display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;}
 label {font-size:14px;}
 input[type="number"] {width:60px;padding:6px;border-radius:6px;border:none;text-align:center;}
 input[type="range"] {width:140px;}
-button {
-  background:var(--accent);color:#04111a;border:none;padding:10px 14px;
-  border-radius:8px;font-size:14px;cursor:pointer;
-}
+button {background:var(--accent);color:#04111a;border:none;padding:10px 14px;border-radius:8px;font-size:14px;cursor:pointer;}
 button:hover {opacity:.95;}
 button.active {background:#00ff88;color:#04111a;}
 #gameArea {position:relative;margin-top:12px;width:100%;max-width:600px;}
 canvas {background:var(--bg);border:3px solid var(--accent);border-radius:8px;display:block;width:100%;height:auto;}
 #hud {margin-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center;}
-#overlay {
-  position:absolute;left:0;top:0;width:100%;height:100%;
-  background:rgba(0,0,0,0.75);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  z-index:5;display:none;text-align:center;
-}
+#overlay {position:absolute;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;display:none;text-align:center;}
 #overlayText {font-size:2rem;margin-bottom:12px;}
-#calcPanel {
-  font-size:12px;line-height:1.2;white-space:pre;
-  max-height:200px;overflow:auto;margin-top:8px;width:90%;
-}
+#calcPanel {font-size:12px;line-height:1.2;white-space:pre;max-height:200px;overflow:auto;margin-top:8px;width:90%;}
 </style>
 </head>
 <body>
@@ -98,14 +80,14 @@ const eatSound = document.getElementById('eatSound');
 const gameOverSound = document.getElementById('gameOverSound');
 
 // ----- Config -----
-let box=32, gridSize, appleCount, snake, apples, dir, lastTick=0, intervalMs=120, score=0;
+let box=32, gridSize, appleCount, snake, apples, dir='RIGHT', lastTick=null, intervalMs=120, score=0;
 let paused=false, trainingEnabled=false;
 let debugPaths=[], debugScores=[];
 const DIRS={UP:[0,-1],DOWN:[0,1],LEFT:[-1,0],RIGHT:[1,0]};
 let learningData={}, tempLearning={};
 let avgScore=0, gamesPlayed=0;
 const batchSize=5000;
-let tickCount = 0;
+let tickCount=0;
 
 // ----- Utils -----
 function keyOf(x,y){return `${x},${y}`;}
@@ -225,11 +207,12 @@ function chooseAIMove(){
 function getStateKey(){return `${snake[0].x},${snake[0].y}|${apples.map(a=>`${a.x},${a.y}`).join('|')}|${snake.length}`;}
 
 // ----- Tick -----
-function tick(time){
-  if(!trainingEnabled && overlay.style.display === 'flex') return; // prevent updates if game over
-  dir=chooseAIMove();
+function tick(){
+  if(!dir) dir='RIGHT';
+  if(!trainingEnabled && overlay.style.display==='flex') return;
   const dxy=DIRS[dir], nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1];
   const newHead={x:nx,y:ny};
+  dir = chooseAIMove() || 'RIGHT';
   let ate=false;
   for(let i=0;i<apples.length;i++){
     if(apples[i].x===nx && apples[i].y===ny){
@@ -241,7 +224,7 @@ function tick(time){
   }
 
   if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
-    if(lastTick){ clearInterval(lastTick); lastTick = null; } // stop normal loop
+    if(lastTick){ clearInterval(lastTick); lastTick=null; }
     overlayText.textContent=`You Died! Score: ${score}`;
     overlay.style.display='flex';
     gameOverSound.play();
@@ -249,19 +232,22 @@ function tick(time){
     avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
     return;
-}
+  }
 
-if(snake.length>=gridSize*gridSize){
-    if(lastTick){ clearInterval(lastTick); lastTick = null; } // stop normal loop
+  if(snake.length>=gridSize*gridSize){
+    if(lastTick){ clearInterval(lastTick); lastTick=null; }
     overlayText.textContent='You Won!';
     overlay.style.display='flex';
     gamesPlayed++;
     avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
     return;
-}
+  }
 
-  if(!trainingEnabled || tickCount % 10 === 0) drawEverything(); // skip some frames during training
+  snake.unshift(newHead);
+  if(!ate) snake.pop();
+
+  if(!trainingEnabled || tickCount % 10 === 0) drawEverything();
 }
 
 // ----- Draw -----
@@ -318,9 +304,8 @@ trainBtn.addEventListener('click',()=>{
   trainBtn.classList.toggle('active', trainingEnabled);
   if(trainingEnabled){ 
     initGame();
-    trainingLoopChunk(20); // start chunked fast training
+    trainingLoopChunk(20);
   } else {
-    // When training stops, send tempLearning to cloud in batches
     saveLearningData();
   }
 });
@@ -365,28 +350,21 @@ async function initGame(){
   score = 0;
   dir = 'RIGHT';
   tickCount = 0;
-
-  scoreEl.textContent = score;
-  overlay.style.display = 'none';
   paused = false;
-  dir = 'RIGHT';
+  overlay.style.display = 'none';
 
-  // Spawn initial apples
   while(apples.length < appleCount) spawnApple();
 
-  // If not training, start normal interval-based game loop
   if(!trainingEnabled){
     if(lastTick) clearInterval(lastTick);
-    lastTick = setInterval(() => {
-      if(!paused) tick();
-    }, intervalMs);
+    lastTick = setInterval(() => { if(!paused) tick(); }, intervalMs);
   }
 
   drawEverything();
 }
-  
-  // Initialize game on page load
-  initGame();
+
+// ----- Start -----
+initGame();
 </script>
 </body>
 </html>
