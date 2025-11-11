@@ -18,7 +18,6 @@
   #hud {margin-top:10px;display:flex;gap:12px;align-items:center;}
   #overlay {position:absolute;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;display:none;}
   #overlayText {font-size:48px;margin-bottom:12px;}
-  .modePicker {margin-left:6px;}
   #calcPanel {font-size:12px;line-height:1.2;white-space:pre;max-height:200px;overflow:auto;margin-top:8px;width:640px;max-width:90%;}
 </style>
 </head>
@@ -26,10 +25,10 @@
 <h1>Blue Snake AI</h1>
 
 <div class="controls">
-  <label>Map size: <input id="mapSize" type="number" min="5" max="50" value="15"></label>
-  <label>Apples: <input id="appleCount" type="number" min="1" max="20" value="5"></label>
+  <label>Map size: <input id="mapSize" type="number" min="5" max="80" value="15"></label>
+  <label>Apples: <input id="appleCount" type="number" min="1" max="50" value="5"></label>
   <label>Mode: 
-    <select id="aiMode" class="modePicker">
+    <select id="aiMode">
       <option value="safe">Safe</option>
       <option value="greedy">Greedy</option>
     </select>
@@ -38,6 +37,8 @@
   <button id="playAgain">Play Again</button>
   <button id="pauseBtn">Pause</button>
   <button id="trainBtn">Train</button>
+  <button id="toggleCalcBtn">Show AI Calculations</button>
+  <button id="clearDataBtn">Clear Learning Data</button>
 </div>
 
 <div id="gameArea">
@@ -47,11 +48,16 @@
 
 <div id="hud">
   <div>Score: <span id="score">0</span></div>
-  <div id="avg"> </div>
+  <div>Avg: <span id="avg">0</span></div>
 </div>
 
 <div id="calcPanel" style="display:none"></div>
 
+<!-- Sounds -->
+<audio id="eatSound" src="/sound/eated.mp3"></audio>
+<audio id="gameOverSound" src="/sound/gameover.mp3"></audio>
+
+<script src="https://cdn.jsdelivr.net/npm/ldstring@1.2.0/ldstring.min.js"></script>
 <script>
 // ----- Elements -----
 const canvas = document.getElementById('canvas');
@@ -64,42 +70,36 @@ const overlay = document.getElementById('overlay');
 const overlayText = document.getElementById('overlayText');
 const overlayBtn = document.getElementById('overlayBtn');
 const scoreEl = document.getElementById('score');
+const avgScoreEl = document.getElementById('avg');
 const speedRange = document.getElementById('speed');
 const speedVal = document.getElementById('speedVal');
 const pauseBtn = document.getElementById('pauseBtn');
 const trainBtn = document.getElementById('trainBtn');
 const calcPanel = document.getElementById('calcPanel');
-
-// ----- Sounds (optional; will fail silently if absent) -----
-const SND_EAT = new Audio('/sound/eated.mp3');
-const SND_DEAD = new Audio('/sound/gameover.mp3');
+const toggleCalcBtn = document.getElementById('toggleCalcBtn');
+const clearDataBtn = document.getElementById('clearDataBtn');
+const eatSound = document.getElementById('eatSound');
+const gameOverSound = document.getElementById('gameOverSound');
 
 // ----- Config -----
-let box = 32;
-let gridSize, appleCount, snake, apples, dir, gameTimer, intervalMs, score;
-let paused = false;
-const DIRS = {UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0]};
-
-// ----- Learning (cloud + temp buffer) -----
-let learningData = {};   // loaded from server, merged
-let tempLearning = {};   // buffered while training
-let lastSave = 0;        // timestamp for spam prevention (ms)
-const SAVE_COOLDOWN = 5000; // 5 sec
-
-// endpoint (adjust if needed). Use no leading dot as requested.
-const LEARNING_ENDPOINT = '/.netlify/functions/learning'; // <- Netlify function path
+let box = 32, gridSize, appleCount, snake, apples, dir, gameTimer=null, intervalMs=120, score=0;
+let paused=false, trainingEnabled=false;
+let debugPaths=[], debugScores=[];
+const DIRS={UP:[0,-1],DOWN:[0,1],LEFT:[-1,0],RIGHT:[1,0]};
+let learningData={}, tempLearning={};
+let avgScore=0, gamesPlayed=0;
+const batchSize = 5000;
 
 // ----- Utils -----
-function keyOf(x,y){ return `${x},${y}`; }
-function collidesWithSnake(x,y){ return snake.some(s=>s.x===x && s.y===y); }
+function keyOf(x,y){return `${x},${y}`;}
+function collidesWithSnake(x,y){return snake.some(s=>s.x===x && s.y===y);}
 
 // ----- Canvas setup -----
 function setupCanvas(){
-  gridSize = Math.max(5, Math.min(50, parseInt(mapSizeInput.value)||15));
-  appleCount = Math.max(1, Math.min(20, parseInt(appleInput.value)||5));
-  box = Math.max(12, Math.floor(640/gridSize));
+  gridSize = Math.max(5,Math.min(50,parseInt(mapSizeInput.value)||15));
+  appleCount = Math.max(1,Math.min(20,parseInt(appleInput.value)||5));
+  box = Math.max(12,Math.floor(640/gridSize));
   canvas.width = canvas.height = box*gridSize;
-  // keep calc panel width aligned to canvas
   calcPanel.style.width = Math.min(640, box*gridSize) + 'px';
 }
 
@@ -116,9 +116,9 @@ function spawnApple(){
   }
 }
 
-// ----- Flood Fill -----
+// ----- A* and AI (unchanged) -----
 function floodFillCount(sx,sy,snakeBody,limit=1000){
-  const visited = new Set(), bodySet = new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
+  const visited=new Set(), bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
   const q=[{x:sx,y:sy}]; let cnt=0;
   while(q.length && cnt<limit){
     const p=q.shift(); const k=keyOf(p.x,p.y);
@@ -132,16 +132,14 @@ function floodFillCount(sx,sy,snakeBody,limit=1000){
   return cnt;
 }
 
-// ----- A* Pathfinding -----
 function aStarPath(start,target,snakeBody){
   const bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
   const h=(x,y)=>Math.abs(x-target.x)+Math.abs(y-target.y);
   const open=new Map(), closed=new Set();
-  const startK=keyOf(start.x,start.y);
-  open.set(startK,{x:start.x,y:start.y,g:0,f:h(start.x,start.y),parent:null,move:null});
+  open.set(keyOf(start.x,start.y), {x:start.x,y:start.y,g:0,f:h(start.x,start.y),parent:null,move:null});
   while(open.size){
     let current, currentK;
-    for(const [k,n] of open){ if(!current || n.f < current.f){ current=n; currentK=k; } }
+    for(const [k,n] of open){if(!current || n.f<current.f){current=n; currentK=k;}}
     open.delete(currentK); closed.add(currentK);
     if(current.x===target.x && current.y===target.y){
       const out=[]; let node=current;
@@ -149,26 +147,22 @@ function aStarPath(start,target,snakeBody){
       return out;
     }
     for(const [dx,dy,name] of [[0,-1,'UP'],[0,1,'DOWN'],[-1,0,'LEFT'],[1,0,'RIGHT']]){
-      const nx=current.x+dx, ny=current.y+dy, nk=keyOf(nx,ny);
+      const nx=current.x+dx, ny=current.y+dy;
       if(nx<0||nx>=gridSize||ny<0||ny>=gridSize) continue;
-      if(closed.has(nk)) continue;
-      if(bodySet.has(nk) && !(nx===target.x && ny===target.y)) continue;
+      if(closed.has(keyOf(nx,ny))) continue;
+      if(bodySet.has(keyOf(nx,ny)) && !(nx===target.x&&ny===target.y)) continue;
       const ng=current.g+1;
-      if(!open.has(nk) || ng < open.get(nk).g){
-        open.set(nk,{x:nx,y:ny,g:ng,f:ng+h(nx,ny),parent:current,move:name});
+      if(!open.has(keyOf(nx,ny)) || ng<open.get(keyOf(nx,ny)).g){
+        open.set(keyOf(nx,ny),{x:nx,y:ny,g:ng,f:ng+h(nx,ny),parent:current,move:name});
       }
     }
   }
   return [];
 }
 
-// ----- AI -----
-// debug structures for drawing and panel
-let debugPaths = [], debugScores = [];
-
 function safeFallbackMove(){
   for(const mv of ['UP','RIGHT','DOWN','LEFT']){
-    const d = DIRS[mv], nx=snake[0].x+d[0], ny=snake[0].y+d[1];
+    const d=DIRS[mv]; const nx=snake[0].x+d[0], ny=snake[0].y+d[1];
     if(nx>=0 && nx<gridSize && ny>=0 && ny<gridSize && !collidesWithSnake(nx,ny)) return mv;
   }
   return dir;
@@ -176,229 +170,180 @@ function safeFallbackMove(){
 
 function chooseAIMove(){
   debugPaths=[]; debugScores=[];
-  const stateKey = (snake && snake[0]) ? getStateKey() : null;
-  const forbiddenMoves = stateKey && Array.isArray(learningData[stateKey]) ? learningData[stateKey] : [];
-  const start = {x:snake[0].x, y:snake[0].y};
-  const mode = aiModeSelect.value;
-  let bestScore = -Infinity, bestMove = null, bestPath = [];
+  const stateKey=getStateKey();
+  const forbiddenMoves = learningData[stateKey]||[];
+  const start={x:snake[0].x,y:snake[0].y};
+  let bestScore=-Infinity, bestMove=null, bestPath=[];
   for(const apple of apples){
-    const path = aStarPath(start, apple, snake);
+    const path=aStarPath(start,apple,snake);
     if(!path.length) continue;
     let simSnake = snake.map(s=>({x:s.x,y:s.y})), simHead={x:simSnake[0].x,y:simSnake[0].y};
-    const pathScores = [];
-    path.forEach((mv,i)=>{
-      const dxy = DIRS[mv];
-      simHead = {x:simHead.x + dxy[0], y:simHead.y + dxy[1]};
+    const pathScores=[];
+    path.forEach((mv)=>{
+      const dxy=DIRS[mv];
+      simHead={x:simHead.x+dxy[0],y:simHead.y+dxy[1]};
       simSnake.unshift({...simHead}); simSnake.pop();
-      const free = floodFillCount(simHead.x, simHead.y, simSnake, 2000);
-      let scoreVal = (mode === 'greedy' ? 1000 - free : free);
-      // penalize moves known bad from learningData
-      if(forbiddenMoves.includes(mv)) scoreVal -= 500;
+      let scoreVal=0;
+      if(aiModeSelect.value==='safe'){
+        scoreVal+=10;
+        if(collidesWithSnake(simHead.x,simHead.y)) scoreVal-=15;
+      }
       pathScores.push(scoreVal);
     });
-    debugPaths.push({path, apple, isChosen:false});
-    debugScores.push({path, apple, pathScores});
-    const finalScore = pathScores[pathScores.length-1] || 0;
-    if(finalScore > bestScore && !forbiddenMoves.includes(path[0])){
-      bestScore = finalScore; bestMove = path[0]; bestPath = path;
+    debugPaths.push({path,apple,isChosen:false});
+    debugScores.push({path,apple,pathScores});
+    const finalScore=pathScores[pathScores.length-1]||0;
+    if(finalScore>bestScore && !forbiddenMoves.includes(path[0])){
+      bestScore=finalScore; bestMove=path[0]; bestPath=path;
     }
   }
-  debugPaths.forEach(p => p.isChosen = (p.path === bestPath));
-
-  // if nothing found and training is ON -> record fallback to tempLearning
+  debugPaths.forEach(p=>p.isChosen=(p.path===bestPath));
   if(!bestMove && trainingEnabled){
-    const fallback = safeFallbackMove();
-    if(fallback && stateKey){
-      if(!tempLearning[stateKey]) tempLearning[stateKey] = [];
-      if(!tempLearning[stateKey].includes(fallback)) tempLearning[stateKey].push(fallback);
-      // do NOT auto-save every time; we only POST when training stops (user requested).
-      // but keep a light autosave protection (send if older than cooldown)
-      const now = Date.now();
-      if(now - lastSave > SAVE_COOLDOWN){
-        // attempt a silent background save (non-blocking); server will merge deduped keys
-        saveLearningDataBatch();
-      }
-    }
+    const fallback=safeFallbackMove();
+    if(fallback){if(!tempLearning[stateKey]) tempLearning[stateKey]=[]; tempLearning[stateKey].push(fallback);}
   }
-
-  return bestMove || safeFallbackMove();
+  return bestMove||safeFallbackMove();
 }
 
-function getStateKey(){
-  const head=snake[0];
-  const appleKey = apples.map(a=>`${a.x},${a.y}`).join('|');
-  return `${head.x},${head.y}|${appleKey}|${(typeof window.wallsCount === 'number'?window.wallsCount:0)}|${snake.length}`;
-}
+function getStateKey(){return `${snake[0].x},${snake[0].y}|${apples.map(a=>`${a.x},${a.y}`).join('|')}|${snake.length}`;}
 
-// ----- Save/load learning -----
-async function loadLearningData(){
-  try{
-    const res = await fetch(LEARNING_ENDPOINT, { method: 'GET' });
-    if(res.ok){
-      const data = await res.json();
-      learningData = data || {};
-    }
-  }catch(e){
-    console.warn('loadLearningData failed', e);
-  }
-}
-
-// save tempLearning to server (merges server-side)
-// if force=true ignore cooldown (used when stopping training)
-async function saveLearningDataBatch(force=false){
-  const now = Date.now();
-  if(!force && (now - lastSave < SAVE_COOLDOWN)) return;
-  if(Object.keys(tempLearning).length === 0) return;
-  try{
-    const res = await fetch(LEARNING_ENDPOINT, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(tempLearning)
-    });
-    if(res.ok){
-      // merge tempLearning into in-memory learningData
-      for(const k in tempLearning){
-        if(!learningData[k]) learningData[k] = [];
-        learningData[k] = Array.from(new Set([...learningData[k], ...tempLearning[k]]));
-      }
-      tempLearning = {};
-      lastSave = now;
-    } else {
-      console.warn('saveLearningDataBatch response not ok', res.status);
-    }
-  }catch(e){
-    console.warn('saveLearningDataBatch failed', e);
-  }
-}
-
-// ----- Game tick -----
-function tick(){
+// ----- Tick -----
+async function tick(){
   if(paused) return;
-  dir = chooseAIMove();
-  const dxy = DIRS[dir];
-  const nx = snake[0].x + dxy[0], ny = snake[0].y + dxy[1];
-  const newHead = {x:nx, y:ny};
-
-  if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
-    clearInterval(gameTimer);
-    SND_DEAD.play().catch(()=>{});
-    overlayText.textContent = `You Died! Score: ${score}`;
-    overlay.style.display = 'flex';
-    return;
-  }
-
-  let ate = false;
+  dir=chooseAIMove();
+  const dxy=DIRS[dir], nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1];
+  const newHead={x:nx,y:ny};
+  let ate=false;
   for(let i=0;i<apples.length;i++){
     if(apples[i].x===nx && apples[i].y===ny){
-      ate = true; score++; scoreEl.textContent = score;
-      SND_EAT.play().catch(()=>{});
-      apples.splice(i,1); spawnApple(); break;
+      ate=true; score++; scoreEl.textContent=score;
+      apples.splice(i,1); spawnApple();
+      eatSound.play();
+      break;
     }
   }
-
-  snake.unshift(newHead);
-  if(!ate) snake.pop();
-
-  if(snake.length >= gridSize*gridSize){
-    clearInterval(gameTimer);
-    overlayText.textContent = 'You Won!';
-    overlay.style.display = 'flex';
+  if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
+    if(gameTimer){ clearInterval(gameTimer); gameTimer=null; }
+    overlayText.textContent=`You Died! Score: ${score}`;
+    overlay.style.display='flex';
+    gameOverSound.play();
+    gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
+    avgScoreEl.textContent=avgScore.toFixed(2);
+    if(trainingEnabled) autoRetry();
     return;
   }
-
+  snake.unshift(newHead); if(!ate) snake.pop();
+  if(snake.length>=gridSize*gridSize){
+    if(gameTimer){ clearInterval(gameTimer); gameTimer=null; }
+    overlayText.textContent='You Won!';
+    overlay.style.display='flex';
+    gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
+    avgScoreEl.textContent=avgScore.toFixed(2);
+    if(trainingEnabled) autoRetry();
+    return;
+  }
   drawEverything();
+  if(!trainingEnabled) await saveLearningData();
 }
 
 // ----- Draw -----
 function drawEverything(){
-  // background
-  ctx.fillStyle = '#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
-
-  // draw paths for all apples
+  ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
   debugPaths.forEach(dp=>{
-    let x = snake[0].x, y = snake[0].y;
+    let x=snake[0].x, y=snake[0].y;
     dp.path.forEach(mv=>{
-      const dxy = DIRS[mv]; x += dxy[0]; y += dxy[1];
-      ctx.fillStyle = dp.isChosen ? 'rgba(0,255,0,0.25)' : 'rgba(46,196,255,0.18)';
-      ctx.fillRect(x*box, y*box, box, box);
+      const dxy=DIRS[mv]; x+=dxy[0]; y+=dxy[1];
+      ctx.fillStyle=dp.isChosen?'rgba(0,255,0,0.25)':'rgba(46,196,255,0.18)';
+      ctx.fillRect(x*box,y*box,box,box);
     });
   });
-
-  // draw apples
-  for(const a of apples){
-    ctx.fillStyle = '#ff4d4d';
-    ctx.fillRect(a.x*box, a.y*box, box, box);
-    ctx.strokeStyle = '#8b0000';
-    ctx.strokeRect(a.x*box+1, a.y*box+1, box-2, box-2);
-  }
-
-  // draw snake
+  apples.forEach(a=>{
+    ctx.fillStyle='#ff4d4d'; ctx.fillRect(a.x*box,a.y*box,box,box);
+    ctx.strokeStyle='#8b0000'; ctx.strokeRect(a.x*box+1,a.y*box+1,box-2,box-2);
+  });
   for(let i=snake.length-1;i>=0;i--){
-    const s = snake[i];
-    ctx.fillStyle = (i===0)?'#0077ff':'#8fcfff';
-    ctx.fillRect(s.x*box, s.y*box, box, box);
-    ctx.strokeStyle = '#003f66';
-    ctx.strokeRect(s.x*box+1, s.y*box+1, box-2, box-2);
+    const s=snake[i];
+    ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff';
+    ctx.fillRect(s.x*box,s.y*box,box,box);
+    ctx.strokeStyle='#003f66'; ctx.strokeRect(s.x*box+1,s.y*box+1,box-2,box-2);
   }
-
-  // calculations panel update (if visible)
-  if(calcPanel.style.display !== 'none'){
-    calcPanel.textContent = '';
+  if(calcPanel.style.display!=='none'){
+    calcPanel.textContent='';
     debugScores.forEach(dp=>{
-      calcPanel.textContent += `Apple (${dp.apple.x},${dp.apple.y}): [${dp.path.join(',')}] => Scores: [${dp.pathScores.map(s=>s.toFixed(0)).join(', ')}]\n`;
+      calcPanel.textContent+=`Apple(${dp.apple.x},${dp.apple.y}): [${dp.path.join(',')}] => Scores: [${dp.pathScores.map(s=>s.toFixed(0)).join(', ')}]\n`;
     });
   }
 }
 
+// ----- Auto Retry -----
+function autoRetry(){ if(trainingEnabled) setTimeout(initGame,0); }
+
 // ----- Controls -----
-document.addEventListener('keydown', (e)=>{
+document.addEventListener('keydown',e=>{
   if(e.key==='ArrowUp' && dir!=='DOWN') dir='UP';
   if(e.key==='ArrowDown' && dir!=='UP') dir='DOWN';
   if(e.key==='ArrowLeft' && dir!=='RIGHT') dir='LEFT';
   if(e.key==='ArrowRight' && dir!=='LEFT') dir='RIGHT';
 });
-playAgainBtn.addEventListener('click', ()=> initGame());
-overlayBtn.addEventListener('click', ()=> initGame());
-speedRange.addEventListener('input', ()=> setSpeed(parseInt(speedRange.value)));
-pauseBtn.addEventListener('click', ()=> paused = !paused);
+playAgainBtn.addEventListener('click',()=>initGame());
+overlayBtn.addEventListener('click',()=>initGame());
+speedRange.addEventListener('input',()=>{
+  intervalMs=parseInt(speedRange.value);
+  speedVal.textContent=intervalMs+'ms';
+  if(!trainingEnabled && gameTimer){ clearInterval(gameTimer); gameTimer=setInterval(tick,intervalMs); }
+});
+pauseBtn.addEventListener('click',()=>paused=!paused);
+toggleCalcBtn.addEventListener('click',()=>{calcPanel.style.display=calcPanel.style.display==='none'?'block':'none'; drawEverything();});
 
-// Train button toggles training. On turning OFF we post accumulated tempLearning to server.
-trainBtn.addEventListener('click', async ()=>{
-  trainingEnabled = !trainingEnabled;
-  trainBtn.textContent = trainingEnabled ? 'Stop Training & Save' : 'Train';
-  if(trainingEnabled){
-    // start a new training run
-    initGame();
-  } else {
-    // stopped training -> send buffer to server now (force)
-    await saveLearningDataBatch(true);
-    // also persist locally to cookie if you want (not requested)
+// ----- Training -----
+trainBtn.addEventListener('click',()=>{
+  trainingEnabled=!trainingEnabled;
+  if(trainingEnabled){ initGame(); trainingLoop(); }
+});
+function trainingLoop(){
+  if(!trainingEnabled) return;
+  tick();
+  requestAnimationFrame(trainingLoop);
+}
+
+// ----- Learning Data Cloud -----
+async function saveLearningData(){
+  if(Object.keys(tempLearning).length===0) return;
+  const dataStr = LDString.compress(JSON.stringify(tempLearning));
+  const chunks = [];
+  for(let i=0;i<dataStr.length;i+=batchSize) chunks.push(dataStr.slice(i,i+batchSize));
+  for(const chunk of chunks){
+    await fetch('/.netlify/functions/learning', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({chunk})});
   }
+  Object.assign(learningData, tempLearning);
+  tempLearning={};
+}
+
+async function loadLearningData(){
+  try{
+    const res = await fetch('/.netlify/functions/learning');
+    const txt = await res.text();
+    if(txt) learningData = JSON.parse(LDString.decompress(txt));
+  }catch(e){}
+}
+
+clearDataBtn.addEventListener('click',async()=>{
+  learningData={}; tempLearning={};
+  await fetch('/.netlify/functions/learning', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({clear:true})});
 });
 
-// simple toggle for the calc panel with redraw
-document.getElementById('trainBtn'); // keep reference
-// optional: show/hide calculations with click on overlay or another button
-// (not present in this trimmed UI - keep calc panel hidden)
-
-// ----- Speed -----
-function setSpeed(ms){ intervalMs = ms; speedVal.textContent = ms + 'ms'; if(gameTimer){ clearInterval(gameTimer); gameTimer = setInterval(tick, intervalMs); }}
-
 // ----- Init -----
-let trainingEnabled = false;
 async function initGame(){
-  // load server learning once at start
   await loadLearningData();
-
   setupCanvas();
-  snake = [{x:Math.floor(gridSize/2), y:Math.floor(gridSize/2)}];
-  apples = []; score = 0; dir = 'RIGHT';
-  scoreEl.textContent = score;
-  overlay.style.display = 'none';
-  while(apples.length < appleCount) spawnApple();
-  setSpeed(parseInt(speedRange.value));
-  if(gameTimer) clearInterval(gameTimer);
-  gameTimer = setInterval(tick, intervalMs);
+  snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];
+  apples=[]; score=0; dir='RIGHT';
+  scoreEl.textContent=score; overlay.style.display='none';
+  while(apples.length<appleCount) spawnApple();
+  if(!trainingEnabled){
+    if(gameTimer) clearInterval(gameTimer);
+    gameTimer=setInterval(tick,intervalMs);
+  }
   drawEverything();
 }
 
