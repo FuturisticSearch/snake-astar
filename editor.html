@@ -2,22 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Blue Snake AI</title>
 <style>
-  :root {--bg:#111;--panel:#222;--accent:#00aaff;}
-  body {margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--panel);color:#fff;display:flex;flex-direction:column;align-items:center;padding:18px;}
-  h1 {margin:6px 0 14px 0;}
-  .controls {display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;}
-  label {font-size:14px;}
-  input[type="number"] {width:60px;padding:4px;border-radius:4px;border:none;text-align:center;}
-  input[type="range"] {width:180px;}
-  button {background:var(--accent);color:#04111a;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;}
-  button:hover {opacity:.95;}
-  #gameArea {position:relative;margin-top:12px;}
-  canvas {background:var(--bg);border:3px solid var(--accent);border-radius:8px;display:block;}
-  #overlay {position:absolute;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;display:none;}
-  #overlayText {font-size:48px;margin-bottom:12px;}
-  #calcPanel {font-size:12px;line-height:1.2;white-space:pre;max-height:200px;overflow:auto;margin-top:8px;width:640px;max-width:90%;}
+:root {--bg:#111;--panel:#222;--accent:#00aaff;}
+body {margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--panel);color:#fff;display:flex;flex-direction:column;align-items:center;padding:12px;}
+h1 {margin:6px 0 14px 0;font-size:1.5rem;text-align:center;}
+.controls {display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;}
+label {font-size:14px;}
+input[type="number"] {width:60px;padding:6px;border-radius:6px;border:none;text-align:center;}
+input[type="range"] {width:140px;}
+button {background:var(--accent);color:#04111a;border:none;padding:10px 14px;border-radius:8px;font-size:14px;cursor:pointer;}
+button:hover {opacity:.95;}
+button.active {background:#00ff88;color:#04111a;}
+#gameArea {position:relative;margin-top:12px;width:100%;max-width:600px;}
+canvas {background:var(--bg);border:3px solid var(--accent);border-radius:8px;display:block;width:100%;height:auto;}
+#hud {margin-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center;}
+#overlay {position:absolute;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;display:none;text-align:center;}
+#overlayText {font-size:2rem;margin-bottom:12px;}
+#calcPanel {font-size:12px;line-height:1.2;white-space:pre;max-height:200px;overflow:auto;margin-top:8px;width:90%;}
 </style>
 </head>
 <body>
@@ -30,8 +33,6 @@
     <select id="aiMode">
       <option value="safe">Safe</option>
       <option value="greedy">Greedy</option>
-      <!-- *** ADDED *** -->
-      <option value="hamiltonian">Hamiltonian</option>
     </select>
   </label>
   <label>Speed: <input id="speed" type="range" min="30" max="300" value="120"> <span id="speedVal">120ms</span></label>
@@ -39,7 +40,6 @@
   <button id="pauseBtn">Pause</button>
   <button id="trainBtn">Train</button>
   <button id="toggleCalcBtn">Show AI Calculations</button>
-  <button id="clearDataBtn">Clear Learning Data</button>
 </div>
 
 <div id="gameArea">
@@ -56,9 +56,17 @@
 
 <audio id="eatSound" src="/sound/eated.mp3"></audio>
 <audio id="gameOverSound" src="/sound/gameover.mp3"></audio>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.36.0/dist/supabase.min.js"></script>
 
-<script src="https://cdn.jsdelivr.net/npm/ldstring@1.2.0/ldstring.min.js"></script>
 <script>
+// ----- Supabase Setup -----
+const supabaseUrl = "https://akmabafqvtltrrwvxmzz.storage.supabase.co";
+const supabaseKey = "3c98e1023235f1f14751f89490f3003b";
+const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+const bucketName = "snake-learning"; // create this bucket in Supabase
+const fileName = "snakeLearning.json";
+
+// ----- Elements -----
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const mapSizeInput = document.getElementById('mapSize');
@@ -75,62 +83,47 @@ const speedVal = document.getElementById('speedVal');
 const pauseBtn = document.getElementById('pauseBtn');
 const trainBtn = document.getElementById('trainBtn');
 const calcPanel = document.getElementById('calcPanel');
-const toggleCalcBtn = document.getElementById('toggleCalcBtn');
-const clearDataBtn = document.getElementById('clearDataBtn');
 const eatSound = document.getElementById('eatSound');
 const gameOverSound = document.getElementById('gameOverSound');
 
-let box = 32, gridSize, appleCount, snake, apples, dir, gameTimer=null, intervalMs=120, score=0;
+// ----- Config -----
+let box=32, gridSize, appleCount, snake, apples, dir, lastTick=0, intervalMs=120, score=0;
 let paused=false, trainingEnabled=false;
 let debugPaths=[], debugScores=[];
 const DIRS={UP:[0,-1],DOWN:[0,1],LEFT:[-1,0],RIGHT:[1,0]};
 let learningData={}, tempLearning={};
 let avgScore=0, gamesPlayed=0;
-const batchSize = 5000;
+const batchSize=5000;
+let tickCount = 0;
 
+// ----- Utils -----
 function keyOf(x,y){return `${x},${y}`;}
 function collidesWithSnake(x,y){return snake.some(s=>s.x===x && s.y===y);}
 
+// ----- Canvas setup -----
 function setupCanvas(){
   gridSize = Math.max(5,Math.min(50,parseInt(mapSizeInput.value)||15));
   appleCount = Math.max(1,Math.min(20,parseInt(appleInput.value)||5));
-  box = Math.max(12,Math.floor(640/gridSize));
+  box = Math.floor(Math.min(window.innerWidth*0.9,600)/gridSize);
   canvas.width = canvas.height = box*gridSize;
-  calcPanel.style.width = Math.min(640, box*gridSize) + 'px';
+  calcPanel.style.width = canvas.width+'px';
 }
 
+// ----- Spawn apple with yellow fruit -----
 function spawnApple(){
   let attempts=0;
   while(attempts<2000){
     const x=Math.floor(Math.random()*gridSize), y=Math.floor(Math.random()*gridSize);
-    if(!collidesWithSnake(x,y) && !apples.some(a=>a.x===x&&a.y===y)){
-      apples.push({x,y});
+    if(!collidesWithSnake(x,y) && !apples.some(a=>a.x===x && a.y===y)){
+      let type = Math.random() < 0.2 ? 'yellow' : 'red';
+      apples.push({x,y,type});
       return;
     }
     attempts++;
   }
 }
 
-// *** ADDED *** HAMILTONIAN CYCLE ***
-let hamiltonianPath = [];
-
-function buildHamiltonian(){
-  hamiltonianPath = [];
-  for(let y=0; y<gridSize; y++){
-    if(y % 2 === 0){
-      for(let x=0; x<gridSize; x++) hamiltonianPath.push({x,y});
-    } else {
-      for(let x=gridSize-1; x>=0; x--) hamiltonianPath.push({x,y});
-    }
-  }
-}
-
-function nextOnHamiltonian(x,y){
-  const i = hamiltonianPath.findIndex(n=>n.x===x && n.y===y);
-  return hamiltonianPath[(i+1) % hamiltonianPath.length];
-}
-// *** END ADD ***
-
+// ----- AI + A* Pathfinding -----
 function floodFillCount(sx,sy,snakeBody,limit=1000){
   const visited=new Set(), bodySet=new Set(snakeBody.map(s=>keyOf(s.x,s.y)));
   const q=[{x:sx,y:sy}]; let cnt=0;
@@ -140,10 +133,8 @@ function floodFillCount(sx,sy,snakeBody,limit=1000){
     if(p.x<0||p.x>=gridSize||p.y<0||p.y>=gridSize) continue;
     if(bodySet.has(k)) continue;
     visited.add(k); cnt++;
-    q.push({x:p.x+1,y:p.y});
-    q.push({x:p.x-1,y:p.y});
-    q.push({x:p.x,y:p.y+1});
-    q.push({x:p.x,y:p.y-1});
+    q.push({x:p.x+1,y:p.y}); q.push({x:p.x-1,y:p.y});
+    q.push({x:p.x,y:p.y+1}); q.push({x:p.x,y:p.y-1});
   }
   return cnt;
 }
@@ -185,46 +176,6 @@ function safeFallbackMove(){
 }
 
 function chooseAIMove(){
-  // *** ADDED HAMILTONIAN MODE ***
-  if(aiModeSelect.value === 'hamiltonian'){
-    const head = snake[0];
-
-    // Try safe apple shortcut
-    let best = null, bestDist = Infinity;
-    for(const a of apples){
-      const d = Math.abs(head.x - a.x) + Math.abs(head.y - a.y);
-      if(d < bestDist){ bestDist = d; best = a; }
-    }
-    if(best){
-      const dx = best.x - head.x;
-      const dy = best.y - head.y;
-      const tryMoves = [];
-      if(Math.abs(dx) > Math.abs(dy)){
-        tryMoves.push(dx>0?'RIGHT':'LEFT');
-        tryMoves.push(dy>0?'DOWN':'UP');
-      } else {
-        tryMoves.push(dy>0?'DOWN':'UP');
-        tryMoves.push(dx>0?'RIGHT':'LEFT');
-      }
-      for(const mv of tryMoves){
-        const dxy=DIRS[mv], nx=head.x+dxy[0], ny=head.y+dxy[1];
-        if(nx>=0 && nx<gridSize && ny>=0 && ny<gridSize && !collidesWithSnake(nx,ny)){
-          return mv;
-        }
-      }
-    }
-
-    // Follow Hamiltonian cycle
-    const nxt = nextOnHamiltonian(head.x, head.y);
-    const dx=nxt.x-head.x, dy=nxt.y-head.y;
-    if(dx===1) return 'RIGHT';
-    if(dx===-1) return 'LEFT';
-    if(dy===1) return 'DOWN';
-    if(dy===-1) return 'UP';
-    return safeFallbackMove();
-  }
-  // *** END ADD ***
-
   debugPaths=[]; debugScores=[];
   const stateKey=getStateKey();
   const forbiddenMoves = learningData[stateKey]||[];
@@ -240,10 +191,8 @@ function chooseAIMove(){
       simHead={x:simHead.x+dxy[0],y:simHead.y+dxy[1]};
       simSnake.unshift({...simHead}); simSnake.pop();
       let scoreVal=0;
-      if(aiModeSelect.value==='safe'){
-        scoreVal+=10;
-        if(collidesWithSnake(simHead.x,simHead.y)) scoreVal-=15;
-      }
+      if(aiModeSelect.value==='safe'){ scoreVal+=10; if(collidesWithSnake(simHead.x,simHead.y)) scoreVal-=15; }
+      if(apple.type==='yellow') scoreVal+=30;
       pathScores.push(scoreVal);
     });
     debugPaths.push({path,apple,isChosen:false});
@@ -262,47 +211,61 @@ function chooseAIMove(){
 }
 
 function getStateKey(){return `${snake[0].x},${snake[0].y}|${apples.map(a=>`${a.x},${a.y}`).join('|')}|${snake.length}`;}
+function autoRetry(){ if(trainingEnabled) setTimeout(initGame,0); }
 
-async function tick(){
+// --- Continue with Tick, Draw, Training, Learning, Init... ---
+// ----- Tick -----
+function tick(){
   if(paused) return;
+
   dir=chooseAIMove();
   const dxy=DIRS[dir], nx=snake[0].x+dxy[0], ny=snake[0].y+dxy[1];
   const newHead={x:nx,y:ny};
-  let ate=false;
+  let ate=false, ateYellow=false;
+
   for(let i=0;i<apples.length;i++){
     if(apples[i].x===nx && apples[i].y===ny){
-      ate=true; score++; scoreEl.textContent=score;
+      if(apples[i].type==='yellow'){ score+=5; ateYellow=true; }
+      else{ score++; }
+      scoreEl.textContent=score;
       apples.splice(i,1); spawnApple();
       eatSound.play();
+      ate=true;
       break;
     }
   }
+
   if(nx<0||nx>=gridSize||ny<0||ny>=gridSize||collidesWithSnake(nx,ny)){
-    if(gameTimer){ clearInterval(gameTimer); gameTimer=null; }
+    if(lastTick){ clearInterval(lastTick); lastTick=null; }
     overlayText.textContent=`You Died! Score: ${score}`;
     overlay.style.display='flex';
     gameOverSound.play();
     gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
-    if(trainingEnabled) autoRetry();
+    autoRetry();
     return;
   }
-  snake.unshift(newHead); if(!ate) snake.pop();
+
+  snake.unshift(newHead);
+  if(!ate) snake.pop();
+
   if(snake.length>=gridSize*gridSize){
-    if(gameTimer){ clearInterval(gameTimer); gameTimer=null; }
+    if(lastTick){ clearInterval(lastTick); lastTick=null; }
     overlayText.textContent='You Won!';
     overlay.style.display='flex';
     gamesPlayed++; avgScore=(avgScore*(gamesPlayed-1)+score)/gamesPlayed;
     avgScoreEl.textContent=avgScore.toFixed(2);
-    if(trainingEnabled) autoRetry();
+    autoRetry();
     return;
   }
-  drawEverything();
-  if(!trainingEnabled) await saveLearningData();
+
+  if(!trainingEnabled || tickCount % 10 === 0) drawEverything(); // skip frames during training
 }
 
+// ----- Draw -----
 function drawEverything(){
   ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
+
   debugPaths.forEach(dp=>{
     let x=snake[0].x, y=snake[0].y;
     dp.path.forEach(mv=>{
@@ -311,16 +274,21 @@ function drawEverything(){
       ctx.fillRect(x*box,y*box,box,box);
     });
   });
+
   apples.forEach(a=>{
-    ctx.fillStyle='#ff4d4d'; ctx.fillRect(a.x*box,a.y*box,box,box);
-    ctx.strokeStyle='#8b0000'; ctx.strokeRect(a.x*box+1,a.y*box+1,box-2,box-2);
+    if(a.type==='yellow'){ ctx.fillStyle='#ffff00'; ctx.strokeStyle='#aaaa00'; }
+    else { ctx.fillStyle='#ff4d4d'; ctx.strokeStyle='#8b0000'; }
+    ctx.fillRect(a.x*box,a.y*box,box,box);
+    ctx.strokeRect(a.x*box+1,a.y*box+1,box-2,box-2);
   });
+
   for(let i=snake.length-1;i>=0;i--){
     const s=snake[i];
     ctx.fillStyle=(i===0)?'#0077ff':'#8fcfff';
     ctx.fillRect(s.x*box,s.y*box,box,box);
     ctx.strokeStyle='#003f66'; ctx.strokeRect(s.x*box+1,s.y*box+1,box-2,box-2);
   }
+
   if(calcPanel.style.display!=='none'){
     calcPanel.textContent='';
     debugScores.forEach(dp=>{
@@ -329,8 +297,53 @@ function drawEverything(){
   }
 }
 
-function autoRetry(){ if(trainingEnabled) setTimeout(initGame,0); }
+// ----- Training -----
+trainBtn.addEventListener('click',()=>{
+  trainingEnabled=!trainingEnabled;
+  trainBtn.classList.toggle('active', trainingEnabled);
+  if(trainingEnabled){
+    initGame();
+    trainingLoopChunk(20);
+  } else {
+    saveLearningData();
+  }
+});
 
+function trainingLoopChunk(maxTicks=20){
+  let ticks=0;
+  while(ticks<maxTicks && trainingEnabled){
+    tick();
+    tickCount++;
+    ticks++;
+  }
+  if(trainingEnabled) requestAnimationFrame(()=>trainingLoopChunk(maxTicks));
+}
+
+// ----- Learning Data Cloud -----
+async function saveLearningData(){
+  if(Object.keys(tempLearning).length === 0) return;
+  try{
+    const newData = { ...learningData, ...tempLearning };
+    const blob = new Blob([JSON.stringify(newData)], { type: "application/json" });
+    const { error } = await supabase.storage.from(bucketName).upload(fileName, blob, { upsert: true });
+    if(error) throw error;
+    Object.assign(learningData, tempLearning);
+    tempLearning={};
+    console.log("Learning data saved!");
+  }catch(err){ console.error("Failed to save data:", err); }
+}
+
+async function loadLearningData(){
+  try{
+    const { data, error } = await supabase.storage.from(bucketName).download(fileName);
+    if(error){ learningData={}; return; }
+    const text = await data.text();
+    learningData = JSON.parse(text||"{}");
+  }catch(err){ console.error("Failed to load data:", err); learningData={}; }
+}
+
+
+// ----- Controls -----
 document.addEventListener('keydown',e=>{
   if(e.key==='ArrowUp' && dir!=='DOWN') dir='UP';
   if(e.key==='ArrowDown' && dir!=='UP') dir='DOWN';
@@ -342,65 +355,40 @@ overlayBtn.addEventListener('click',()=>initGame());
 speedRange.addEventListener('input',()=>{
   intervalMs=parseInt(speedRange.value);
   speedVal.textContent=intervalMs+'ms';
-  if(!trainingEnabled && gameTimer){ clearInterval(gameTimer); gameTimer=setInterval(tick,intervalMs); }
 });
 pauseBtn.addEventListener('click',()=>paused=!paused);
 toggleCalcBtn.addEventListener('click',()=>{calcPanel.style.display=calcPanel.style.display==='none'?'block':'none'; drawEverything();});
 
-trainBtn.addEventListener('click',()=>{
-  trainingEnabled=!trainingEnabled;
-  if(trainingEnabled){ initGame(); trainingLoop(); }
-});
-function trainingLoop(){
-  if(!trainingEnabled) return;
-  tick();
-  requestAnimationFrame(trainingLoop);
-}
-
-async function saveLearningData(){
-  if(Object.keys(tempLearning).length===0) return;
-  const dataStr = LDString.compress(JSON.stringify(tempLearning));
-  const chunks = [];
-  for(let i=0;i<dataStr.length;i+=batchSize) chunks.push(dataStr.slice(i,i+batchSize));
-  for(const chunk of chunks){
-    await fetch('/.netlify/functions/learning', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({chunk})});
-  }
-  Object.assign(learningData, tempLearning);
-  tempLearning={};
-}
-
-async function loadLearningData(){
-  try{
-    const res = await fetch('/.netlify/functions/learning');
-    const txt = await res.text();
-    if(txt) learningData = JSON.parse(LDString.decompress(txt));
-  }catch(e){}
-}
-
-clearDataBtn.addEventListener('click',async()=>{
-  learningData={}; tempLearning={};
-  await fetch('/.netlify/functions/learning', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({clear:true})});
-});
-
+// ----- Init -----
 async function initGame(){
   await loadLearningData();
   setupCanvas();
-  snake=[{x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}];
-  apples=[]; score=0; dir='RIGHT';
-  scoreEl.textContent=score; overlay.style.display='none';
-  while(apples.length<appleCount) spawnApple();
 
-  // *** ADDED ***
-  buildHamiltonian();
-  // *** END ***
+  // Start snake at size 2
+  snake = [
+    {x: Math.floor(gridSize/2)-1, y: Math.floor(gridSize/2)},
+    {x: Math.floor(gridSize/2), y: Math.floor(gridSize/2)}
+  ];
+
+  apples = [];
+  score = 0;
+  dir = 'RIGHT';
+  tickCount = 0;
+
+  scoreEl.textContent = score;
+  overlay.style.display = 'none';
+
+  while(apples.length < appleCount) spawnApple();
 
   if(!trainingEnabled){
-    if(gameTimer) clearInterval(gameTimer);
-    gameTimer=setInterval(tick,intervalMs);
+    if(lastTick) clearInterval(lastTick);
+    lastTick = setInterval(()=>{ if(!paused) tick(); }, intervalMs);
   }
+
   drawEverything();
 }
 
+// Initialize game on page load
 initGame();
 </script>
 </body>
