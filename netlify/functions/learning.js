@@ -20,11 +20,22 @@ exports.handler = async (event) => {
     };
   }
 
-  // POST request → merge learning data
+  // POST request → merge or clear learning data
   if (event.httpMethod === "POST") {
     try {
       const incoming = JSON.parse(event.body);
 
+      // CLEAR action
+      if (incoming.action === "clear") {
+        fs.writeFileSync(DB_PATH, JSON.stringify({}));
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ success: true, message: "Data cleared!" }),
+          headers: { "Content-Type": "application/json" }
+        };
+      }
+
+      // MERGE data as before
       Object.keys(incoming).forEach(key => {
         if (!data[key]) data[key] = [];
         data[key] = Array.from(new Set([...data[key], ...incoming[key]]));
@@ -34,7 +45,8 @@ exports.handler = async (event) => {
 
       return {
         statusCode: 200,
-        body: JSON.stringify({ success: true })
+        body: JSON.stringify({ success: true }),
+        headers: { "Content-Type": "application/json" }
       };
     } catch (err) {
       return { statusCode: 400, body: "Bad JSON" };
