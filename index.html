@@ -41,6 +41,8 @@ border-radius:8px;
 cursor:pointer;
 }
 
+button.active{background:#00ff88;color:#04111a;}
+
 #overlay{
 position:absolute;
 top:0;
@@ -61,7 +63,6 @@ justify-content:center;
 <h2>Blue Snake</h2>
 
 <div class="controls">
-
 <label>Map
 <input id="mapSize" type="number" value="20" min="5" max="50">
 </label>
@@ -71,12 +72,12 @@ justify-content:center;
 </label>
 
 <label>Speed
-<input id="speed" type="range" min="40" max="300" value="60">
+<input id="speed" type="range" min="40" max="300" value="120">
 </label>
 
 <button id="playAgain">Restart</button>
 <button id="pauseBtn">Pause</button>
-
+<button id="turboBtn">Turbo Mode</button>
 </div>
 
 <div style="position:relative">
@@ -93,13 +94,13 @@ Score <span id="score">0</span>
 </div>
 
 <script>
-
 const canvas=document.getElementById("canvas")
 const ctx=canvas.getContext("2d")
 
 const mapSizeInput=document.getElementById("mapSize")
 const appleInput=document.getElementById("appleCount")
 const speedInput=document.getElementById("speed")
+const turboBtn=document.getElementById("turboBtn")
 
 const scoreEl=document.getElementById("score")
 const overlay=document.getElementById("overlay")
@@ -108,7 +109,7 @@ const overlayText=document.getElementById("overlayText")
 let gridSize, appleCount, box
 let snake=[], apples=[]
 let dir="RIGHT", intervalMs=120, lastTick
-let score=0, paused=false
+let score=0, paused=false, turbo=false
 
 const DIRS={UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0]}
 
@@ -131,7 +132,7 @@ function followHamiltonian(){
     let head=snake[0]
     let idx = hamiltonianPath.findIndex(p=>p.x===head.x && p.y===head.y)
     let next=hamiltonianPath[(idx+1)%hamiltonianPath.length]
-    
+
     // Shortcut if apple is ahead and safe
     for(const apple of apples){
         if(canReachApple(head,apple)){
@@ -141,16 +142,15 @@ function followHamiltonian(){
             if(apple.y<head.y) return "UP"
         }
     }
-    
+
     if(next.x>head.x) return "RIGHT"
     if(next.x<head.x) return "LEFT"
     if(next.y>head.y) return "DOWN"
     if(next.y<head.y) return "UP"
-    
+
     return "UP"
 }
 
-// Simple check if apple can be safely reached along free space
 function canReachApple(head,apple){
     const visited=new Set()
     const stack=[[head.x,head.y]]
@@ -309,6 +309,7 @@ function initGame(){
 
     clearInterval(lastTick)
     intervalMs=parseInt(speedInput.value)
+    if(turbo) intervalMs=Math.floor(intervalMs/5)
     lastTick=setInterval(tick,intervalMs)
     draw()
 }
@@ -318,12 +319,22 @@ document.getElementById("playAgain").onclick=initGame
 document.getElementById("pauseBtn").onclick=()=>paused=!paused
 speedInput.oninput=()=>{
     intervalMs=parseInt(speedInput.value)
+    if(turbo) intervalMs=Math.floor(intervalMs/5)
+    clearInterval(lastTick)
+    lastTick=setInterval(tick,intervalMs)
+}
+
+// --- Turbo Mode ---
+turboBtn.onclick=()=>{
+    turbo=!turbo
+    turboBtn.classList.toggle("active",turbo)
+    intervalMs=parseInt(speedInput.value)
+    if(turbo) intervalMs=Math.floor(intervalMs/5)
     clearInterval(lastTick)
     lastTick=setInterval(tick,intervalMs)
 }
 
 initGame()
-
 </script>
 </body>
 </html>
