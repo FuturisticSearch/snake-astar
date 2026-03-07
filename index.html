@@ -246,7 +246,7 @@ function chooseMove(){
 function tick(){
     if(paused) return
 
-    if(!useHamiltonian && snake.length > gridSize*gridSize*0.3) useHamiltonian=true
+    if(!useHamiltonian && snake.length > gridSize*gridSize*0.05) useHamiltonian=true
 
     dir=chooseMove()
     let d=DIRS[dir], nx=snake[0].x+d[0], ny=snake[0].y+d[1]
