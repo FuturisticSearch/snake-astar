@@ -28,7 +28,7 @@ flex-wrap:wrap;
 justify-content:center;
 margin-bottom:10px;
 }
-button, input[type=number]{
+button,input[type=number]{
 background:#00aaff;
 border:none;
 padding:6px 12px;
@@ -122,6 +122,9 @@ let moveHistory=[], maxHistory=50
 // Average score
 let totalGames=0, totalScore=0, avgScore=0
 
+// Dynamic multipliers for learning
+let spaceMultiplier=2, appleDistanceMultiplier=-3, appleEatenBonus=100
+
 // RL variables
 let generation=0, population=[], currentSnakeIndex=0
 
@@ -184,18 +187,19 @@ function chooseMoveAI(snakeRef, brain){
             if(dist<closest) closest=dist
             if(nx===apple.x && ny===apple.y) scoreVal+=brain.appleEatenBonus + (apple.type==="yellow"?40:0)
         }
+
         let space=floodFill(nx,ny,snakeRef)
         scoreVal+=space*brain.spaceMultiplier
         if(space<snakeRef.length+5) scoreVal-=1000
         scoreVal+=closest*brain.appleDistanceMultiplier
-        if(nx===0||ny===0||nx===gridSize-1||ny===gridSize-1) scoreVal-=snakeRef.length
+        if(nx===0||ny===0||nx>=gridSize-1||ny>=gridSize-1) scoreVal-=snakeRef.length
 
         if(scoreVal>bestScore){ bestScore=scoreVal; bestMove=move }
     }
     return bestMove||"UP"
 }
 
-// --- RL Snake constructor ---
+// --- RL Snake ---
 function createRandomBrain(){
     return {
         spaceMultiplier:Math.random()*3+1,
@@ -250,27 +254,14 @@ function tick(){
         dir=chooseMove()
         let d=DIRS[dir], nx=snake[0].x+d[0], ny=snake[0].y+d[1]
 
-        // Save move history for learning
-        moveHistory.push({
-            head:{...snake[0]},
-            dir,
-            snake:snake.map(s=>({...s})),
-            apples:apples.map(a=>({...a})),
-            penalty:0
-        })
+        moveHistory.push({head:{...snake[0]},dir,snake:snake.map(s=>({...s})),apples:apples.map(a=>({...a})),penalty:0})
         if(moveHistory.length>maxHistory) moveHistory.shift()
 
         if(nx<0||ny<0||nx>=gridSize||ny>=gridSize||collides(nx,ny)){
             clearInterval(lastTick)
             overlayText.textContent="Game Over Score "+score
             overlay.style.display=learn? "none":"flex"
-
-            // Update average
-            totalGames++
-            totalScore+=score
-            avgScore=(totalScore/totalGames).toFixed(2)
-            avgEl.textContent = avgScore
-
+            totalGames++; totalScore+=score; avgScore=(totalScore/totalGames).toFixed(2); avgEl.textContent=avgScore
             if(learn) analyzeDeath()
             if(learn) setTimeout(initGame,50)
             return
@@ -300,37 +291,25 @@ function nextSnakeOrGen(){
     if(currentSnakeIndex>=population.length){
         generation++
         genEl.textContent=generation
-        // Evolve population
         evolvePopulation()
         currentSnakeIndex=0
     }
-    // Reset apples for next snake
     apples=[]
     while(apples.length<appleCount) spawnApple()
 }
 
-// --- RL evolution ---
+// --- RL Evolution ---
 function evolvePopulation(){
-    // Sort by score descending
     population.sort((a,b)=>b.score-a.score)
-    totalScore=0
-    totalGames=0
-    avgEl.textContent=0
-    let top=population.slice(0,Math.ceil(population.length/5)) // top 20%
+    let top=population.slice(0,Math.ceil(population.length/5))
     let newPop=[]
     while(newPop.length<population.length){
         let parent=top[Math.floor(Math.random()*top.length)]
         let childBrain={...parent.brain}
-        // small mutation
         childBrain.spaceMultiplier*=1+(Math.random()-0.5)*0.2
         childBrain.appleDistanceMultiplier*=1+(Math.random()-0.5)*0.2
         childBrain.appleEatenBonus*=1+(Math.random()-0.5)*0.2
-        newPop.push({
-            positions:[{x:0,y:0},{x:1,y:0}],
-            brain:childBrain,
-            score:0,
-            alive:true
-        })
+        newPop.push({positions:[{x:0,y:0},{x:1,y:0}],brain:childBrain,score:0,alive:true})
     }
     population=newPop
 }
@@ -420,7 +399,6 @@ document.getElementById("rlBtn").onclick=()=>{
     rlMode=!rlMode
     rlBtn.classList.toggle("active",rlMode)
 }
-
 speedInput.oninput=()=>{
     intervalMs=parseInt(speedInput.value)
     if(turbo) intervalMs=Math.floor(intervalMs/5)
