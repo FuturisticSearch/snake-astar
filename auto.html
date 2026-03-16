@@ -94,32 +94,33 @@ Score <span id="score">0</span>
 </div>
 
 <script>
-const canvas=document.getElementById("canvas")
-const ctx=canvas.getContext("2d")
+const canvas = document.getElementById("canvas")
+const ctx = canvas.getContext("2d")
 
-const mapSizeInput=document.getElementById("mapSize")
-const appleInput=document.getElementById("appleCount")
-const speedInput=document.getElementById("speed")
-const turboBtn=document.getElementById("turboBtn")
+const mapSizeInput = document.getElementById("mapSize")
+const appleInput = document.getElementById("appleCount")
+const speedInput = document.getElementById("speed")
+const turboBtn = document.getElementById("turboBtn")
 
-const scoreEl=document.getElementById("score")
-const overlay=document.getElementById("overlay")
-const overlayText=document.getElementById("overlayText")
+const scoreEl = document.getElementById("score")
+const overlay = document.getElementById("overlay")
+const overlayText = document.getElementById("overlayText")
 
 let gridSize, appleCount, box
-let snake=[], apples=[]
-let dir="RIGHT", intervalMs=120, lastTick
-let score=0, paused=false, turbo=false
+let snake = [], apples = []
+let dir = "RIGHT", intervalMs = 120, lastTick
+let score = 0, paused = false, turbo = false
 
-const DIRS={UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0]}
+const DIRS = {UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0]}
 
 // --- Hamiltonian ---
-let hamiltonianPath=[]
-let useHamiltonian=false
+let hamiltonianPath = []
+let useHamiltonian = false
 
 function generateHamiltonian(){
-    hamiltonianPath=[]
-    for(let y=0;y<gridSize;y++){
+    hamiltonianPath = []
+    // True full-grid zig-zag loop
+    for(let y=0; y<gridSize; y++){
         if(y%2===0){
             for(let x=0;x<gridSize;x++) hamiltonianPath.push({x,y})
         }else{
@@ -129,66 +130,31 @@ function generateHamiltonian(){
 }
 
 function followHamiltonian(){
-    let head=snake[0]
-    let idx = hamiltonianPath.findIndex(p=>p.x===head.x && p.y===head.y)
-    let next=hamiltonianPath[(idx+1)%hamiltonianPath.length]
-
-    // Only take apple shortcut if enough space
-    for(const apple of apples){
-        if(canReachApple(head, apple) && floodFill(apple.x, apple.y) >= snake.length){
-            if(apple.x>head.x) return "RIGHT"
-            if(apple.x<head.x) return "LEFT"
-            if(apple.y>head.y) return "DOWN"
-            if(apple.y<head.y) return "UP"
-        }
-    }
-
-    if(next.x>head.x) return "RIGHT"
-    if(next.x<head.x) return "LEFT"
-    if(next.y>head.y) return "DOWN"
-    if(next.y<head.y) return "UP"
-
-    return "UP"
+    const head = snake[0]
+    let idx = hamiltonianPath.findIndex(p => p.x===head.x && p.y===head.y)
+    let next = hamiltonianPath[(idx+1) % hamiltonianPath.length]
+    // Always follow path (no unsafe shortcuts)
+    return next.x>head.x ? "RIGHT"
+         : next.x<head.x ? "LEFT"
+         : next.y>head.y ? "DOWN"
+         : "UP"
 }
 
-function canReachApple(head,apple){
-    const visited=new Set()
-    const stack=[[head.x,head.y]]
-    const maxSteps=gridSize*gridSize
-    let steps=0
-    while(stack.length && steps<maxSteps){
-        let [x,y]=stack.pop()
-        if(x===apple.x && y===apple.y) return true
-        let key=x+","+y
-        if(visited.has(key)) continue
-        visited.add(key)
-        for(const d of Object.values(DIRS)){
-            let nx=x+d[0], ny=y+d[1]
-            if(nx<0||ny<0||nx>=gridSize||ny>=gridSize) continue
-            if(snake.some(s=>s.x===nx && s.y===ny)) continue
-            stack.push([nx,ny])
-        }
-        steps++
-    }
-    return false
-}
-
-// --- Utilities ---
-function collides(x,y){return snake.some(s=>s.x===x&&s.y===y)}
+function collides(x,y){return snake.some(s=>s.x===x && s.y===y)}
 
 function setupCanvas(){
-    gridSize=parseInt(mapSizeInput.value)
-    appleCount=parseInt(appleInput.value)
-    box=Math.floor(Math.min(window.innerWidth*0.9,600)/gridSize)
-    canvas.width=canvas.height=box*gridSize
+    gridSize = parseInt(mapSizeInput.value)
+    appleCount = parseInt(appleInput.value)
+    box = Math.floor(Math.min(window.innerWidth*0.9,600)/gridSize)
+    canvas.width = canvas.height = box*gridSize
 }
 
 function spawnApple(){
     while(true){
-        let x=Math.floor(Math.random()*gridSize)
-        let y=Math.floor(Math.random()*gridSize)
+        let x = Math.floor(Math.random()*gridSize)
+        let y = Math.floor(Math.random()*gridSize)
         if(!collides(x,y) && !apples.some(a=>a.x===x && a.y===y)){
-            let type=Math.random()<0.2?"yellow":"red"
+            let type = Math.random()<0.2?"yellow":"red"
             apples.push({x,y,type})
             return
         }
@@ -196,10 +162,10 @@ function spawnApple(){
 }
 
 function floodFill(x,y){
-    let stack=[[x,y]], visited=new Set(), count=0
+    let stack = [[x,y]], visited = new Set(), count = 0
     while(stack.length){
-        let [cx,cy]=stack.pop()
-        let key=cx+","+cy
+        let [cx,cy] = stack.pop()
+        let key = cx+","+cy
         if(visited.has(key)) continue
         visited.add(key)
         if(cx<0||cy<0||cx>=gridSize||cy>=gridSize) continue
@@ -212,51 +178,45 @@ function floodFill(x,y){
 
 // --- AI ---
 function isSafeMove(nx,ny){
-    // 1-step lookahead
     if(collides(nx,ny)||nx<0||ny<0||nx>=gridSize||ny>=gridSize) return false
-    let tempSnake=[{x:nx,y:ny}, ...snake.slice(0,-1)]
+    let tempSnake = [{x:nx,y:ny}, ...snake.slice(0,-1)]
     return floodFill(tempSnake[0].x,tempSnake[0].y) >= tempSnake.length
 }
 
 function chooseMove(){
     if(useHamiltonian) return followHamiltonian()
-
-    let bestMove=null, bestScore=-Infinity
+    
+    let bestMove = null, bestScore = -Infinity
     for(const [move,d] of Object.entries(DIRS)){
-        let nx=snake[0].x+d[0], ny=snake[0].y+d[1]
+        let nx = snake[0].x + d[0], ny = snake[0].y + d[1]
         if(!isSafeMove(nx,ny)) continue
 
-        let scoreVal=0
-        let closest=Infinity
+        let scoreVal = 0
+        let closest = Infinity
         for(const apple of apples){
-            let dist=Math.abs(nx-apple.x)+Math.abs(ny-apple.y)
+            let dist = Math.abs(nx-apple.x)+Math.abs(ny-apple.y)
             if(dist<closest) closest=dist
-            if(nx===apple.x&&ny===apple.y){
-                scoreVal+=100
-                if(apple.type==="yellow") scoreVal+=40
-            }
+            if(nx===apple.x&&ny===apple.y) scoreVal+=100 + (apple.type==="yellow"?40:0)
         }
 
-        let space=floodFill(nx,ny)
-        scoreVal += space*2 // prioritize open space
+        let space = floodFill(nx,ny)
+        scoreVal += space*2
         if(space < snake.length + 5) scoreVal -= 1000
         scoreVal -= closest*3
-        // Penalize edges dynamically
         if(nx===0||ny===0||nx===gridSize-1||ny===gridSize-1) scoreVal -= snake.length
 
         if(scoreVal>bestScore){ bestScore=scoreVal; bestMove=move }
     }
-    return bestMove||"UP"
+    return bestMove || "UP"
 }
 
 // --- Game Loop ---
 function tick(){
     if(paused) return
+    if(!useHamiltonian && snake.length > gridSize*gridSize*0.5) useHamiltonian = true
 
-    if(!useHamiltonian && snake.length > gridSize*gridSize*0.8) useHamiltonian=true
-
-    dir=chooseMove()
-    let d=DIRS[dir], nx=snake[0].x+d[0], ny=snake[0].y+d[1]
+    dir = chooseMove()
+    let d = DIRS[dir], nx = snake[0].x+d[0], ny = snake[0].y+d[1]
 
     if(nx<0||ny<0||nx>=gridSize||ny>=gridSize||collides(nx,ny)){
         clearInterval(lastTick)
@@ -265,14 +225,14 @@ function tick(){
         return
     }
 
-    let ate=false
+    let ate = false
     for(let i=0;i<apples.length;i++){
-        if(apples[i].x===nx&&apples[i].y===ny){
-            score+=apples[i].type==="yellow"?5:1
-            scoreEl.textContent=score
+        if(apples[i].x===nx && apples[i].y===ny){
+            score += apples[i].type==="yellow"?5:1
+            scoreEl.textContent = score
             apples.splice(i,1)
             spawnApple()
-            ate=true
+            ate = true
             break
         }
     }
@@ -287,12 +247,12 @@ function draw(){
     ctx.fillRect(0,0,canvas.width,canvas.height)
 
     for(const a of apples){
-        ctx.fillStyle=a.type==="yellow"?"yellow":"red"
+        ctx.fillStyle = a.type==="yellow"?"yellow":"red"
         ctx.fillRect(a.x*box,a.y*box,box,box)
     }
 
     snake.forEach((s,i)=>{
-        ctx.fillStyle=i===0?"#0077ff":"#8fcfff"
+        ctx.fillStyle = i===0?"#0077ff":"#8fcfff"
         ctx.fillRect(s.x*box,s.y*box,box,box)
     })
 }
@@ -303,11 +263,11 @@ function initGame(){
     generateHamiltonian()
     useHamiltonian=false
 
-    snake=[
-        {x:Math.floor(gridSize/2)-1,y:Math.floor(gridSize/2)},
-        {x:Math.floor(gridSize/2),y:Math.floor(gridSize/2)}
+    snake = [
+        {x:0, y:0},
+        {x:1, y:0}
     ]
-    apples=[]
+    apples = []
     while(apples.length<appleCount) spawnApple()
 
     score=0
@@ -317,7 +277,7 @@ function initGame(){
     clearInterval(lastTick)
     intervalMs=parseInt(speedInput.value)
     if(turbo) intervalMs=Math.floor(intervalMs/5)
-    lastTick=setInterval(tick,intervalMs)
+    lastTick = setInterval(tick,intervalMs)
     draw()
 }
 
@@ -325,20 +285,20 @@ function initGame(){
 document.getElementById("playAgain").onclick=initGame
 document.getElementById("pauseBtn").onclick=()=>paused=!paused
 speedInput.oninput=()=>{
-    intervalMs=parseInt(speedInput.value)
+    intervalMs = parseInt(speedInput.value)
     if(turbo) intervalMs=Math.floor(intervalMs/5)
     clearInterval(lastTick)
-    lastTick=setInterval(tick,intervalMs)
+    lastTick = setInterval(tick,intervalMs)
 }
 
 // --- Turbo Mode ---
 turboBtn.onclick=()=>{
-    turbo=!turbo
+    turbo = !turbo
     turboBtn.classList.toggle("active",turbo)
-    intervalMs=parseInt(speedInput.value)
+    intervalMs = parseInt(speedInput.value)
     if(turbo) intervalMs=Math.floor(intervalMs/5)
     clearInterval(lastTick)
-    lastTick=setInterval(tick,intervalMs)
+    lastTick = setInterval(tick,intervalMs)
 }
 
 initGame()
