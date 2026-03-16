@@ -82,7 +82,10 @@ justify-content:center;
 </div>
 
 <div>
-Score <span id="score">0</span>
+Score: <span id="score">0</span>
+</div>
+<div>
+Average Score: <span id="avgScore">0</span>
 </div>
 
 <script>
@@ -102,6 +105,9 @@ let snake=[], apples=[]
 let dir="RIGHT", intervalMs=120, lastTick
 let score=0, paused=false, turbo=false, learn=false
 let moveHistory=[], maxHistory=50
+
+// Average score
+let totalGames=0, totalScore=0, avgScore=0
 
 // Dynamic multipliers for learning
 let spaceMultiplier=2, appleDistanceMultiplier=-3, appleEatenBonus=100
@@ -202,11 +208,16 @@ function tick(){
     if(nx<0||ny<0||nx>=gridSize||ny>=gridSize||collides(nx,ny)){
         clearInterval(lastTick)
         overlayText.textContent="Game Over Score "+score
-        overlay.style.display=learn? "none":"flex"  // hide overlay if learn auto-restart
+        overlay.style.display=learn? "none":"flex"
+
+        // Update average
+        totalGames++
+        totalScore+=score
+        avgScore=(totalScore/totalGames).toFixed(2)
+        document.getElementById("avgScore").textContent = avgScore
+
         if(learn) analyzeDeath()
-        if(learn){
-            setTimeout(initGame,50) // auto-restart
-        }
+        if(learn) setTimeout(initGame,50) // auto-restart
         return
     }
 
@@ -234,7 +245,6 @@ function analyzeDeath(){
         if(i<0) continue
         moveHistory[i].penalty+=50
     }
-    // Adjust multipliers slightly
     spaceMultiplier*=0.98
     appleDistanceMultiplier*=1.02
 }
