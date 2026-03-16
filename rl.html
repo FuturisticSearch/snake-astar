@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blue Snake</title>
+<style>
+:root{--bg:#111;--panel:#222;--accent:#00aaff;}
+body{
+margin:0;
+font-family:Arial;
+background:var(--panel);
+color:white;
+display:flex;
+flex-direction:column;
+align-items:center;
+padding:10px;
+}
+canvas{
+background:#111;
+border:3px solid #00aaff;
+border-radius:8px;
+}
+.controls{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+justify-content:center;
+margin-bottom:10px;
+}
+button, input[type=number]{
+background:#00aaff;
+border:none;
+padding:6px 12px;
+border-radius:8px;
+cursor:pointer;
+color:white;
+}
+button.active{background:#00ff88;color:#04111a;}
+#overlay{
+position:absolute;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:rgba(0,0,0,.8);
+display:none;
+flex-direction:column;
+align-items:center;
+justify-content:center;
+}
+</style>
+</head>
+<body>
+
+<h2>Blue Snake</h2>
+
+<div class="controls">
+<label>Map
+<input id="mapSize" type="number" value="30" min="20" max="100">
+</label>
+
+<label>Apples
+<input id="appleCount" type="number" value="5" min="1" max="20">
+</label>
+
+<label>Speed
+<input id="speed" type="range" min="30" max="300" value="40">
+</label>
+
+<button id="playAgain">Restart</button>
+<button id="pauseBtn">Pause</button>
+<button id="turboBtn">Turbo Mode</button>
+<button id="learnBtn">Learn Mode</button>
+<button id="rlBtn">RL Mode</button>
+
+<label>Population
+<input id="populationSize" type="number" value="20" min="5" max="50">
+</label>
+</div>
+
+<div style="position:relative">
+<canvas id="canvas"></canvas>
+<div id="overlay">
+<h1 id="overlayText"></h1>
+<button onclick="initGame()">Play Again</button>
+</div>
+</div>
+
+<div>
+Score: <span id="score">0</span>
+</div>
+<div>
+Average Score: <span id="avgScore">0</span>
+</div>
+<div>
+Generation: <span id="genCount">0</span>
+</div>
+
+<script>
+const canvas=document.getElementById("canvas")
+const ctx=canvas.getContext("2d")
+const mapSizeInput=document.getElementById("mapSize")
+const appleInput=document.getElementById("appleCount")
+const speedInput=document.getElementById("speed")
+const turboBtn=document.getElementById("turboBtn")
+const learnBtn=document.getElementById("learnBtn")
+const rlBtn=document.getElementById("rlBtn")
+const popInput=document.getElementById("populationSize")
+const scoreEl=document.getElementById("score")
+const overlay=document.getElementById("overlay")
+const overlayText=document.getElementById("overlayText")
+const genEl=document.getElementById("genCount")
+const avgEl=document.getElementById("avgScore")
+
+let gridSize, appleCount, box
+let snake=[], apples=[]
+let dir="RIGHT", intervalMs=120, lastTick
+let score=0, paused=false, turbo=false, learn=false, rlMode=false
+let moveHistory=[], maxHistory=50
+
+// Average score
+let totalGames=0, totalScore=0, avgScore=0
+
+// RL variables
+let generation=0, population=[], currentSnakeIndex=0
+
+const DIRS={UP:[0,-1], DOWN:[0,1], LEFT:[-1,0], RIGHT:[1,0]}
+
+// --- Utilities ---
+function collides(x,y,s=snake){return s.some(s=>s.x===x && s.y===y)}
+function floodFill(x,y,s=snake){
+    let stack=[[x,y]], visited=new Set(), count=0
+    while(stack.length){
+        let [cx,cy]=stack.pop()
+        let key=cx+","+cy
+        if(visited.has(key)) continue
+        visited.add(key)
+        if(cx<0||cy<0||cx>=gridSize||cy>=gridSize) continue
+        if(collides(cx,cy,s)) continue
+        count++
+        stack.push([cx+1,cy],[cx-1,cy],[cx,cy+1],[cx,cy-1])
+    }
+    return count
+}
+
+// --- Setup ---
+function setupCanvas(){
+    gridSize=parseInt(mapSizeInput.value)
+    appleCount=parseInt(appleInput.value)
+    box=Math.floor(Math.min(window.innerWidth*0.9,600)/gridSize)
+    canvas.width=canvas.height=box*gridSize
+}
+
+function spawnApple(snakeRef=snake){
+    while(true){
+        let x=Math.floor(Math.random()*gridSize)
+        let y=Math.floor(Math.random()*gridSize)
+        if(!collides(x,y,snakeRef) && !apples.some(a=>a.x===x && a.y===y)){
+            let type=Math.random()<0.2?"yellow":"red"
+            apples.push({x,y,type})
+            return
+        }
+    }
+}
+
+// --- AI scoring ---
+function isSafeMove(nx,ny,s=snake){
+    if(collides(nx,ny,s)||nx<0||ny<0||nx>=gridSize||ny>=gridSize) return false
+    let tempSnake=[{x:nx,y:ny}, ...s.slice(0,-1)]
+    return floodFill(tempSnake[0].x,tempSnake[0].y,tempSnake) >= tempSnake.length
+}
+
+function chooseMoveAI(snakeRef, brain){
+    let bestMove=null, bestScore=-Infinity
+    for(const [move,d] of Object.entries(DIRS)){
+        let nx=snakeRef[0].x+d[0], ny=snakeRef[0].y+d[1]
+        if(!isSafeMove(nx,ny,snakeRef)) continue
+
+        let scoreVal=0
+        let closest=Infinity
+        for(const apple of apples){
+            let dist=Math.abs(nx-apple.x)+Math.abs(ny-apple.y)
+            if(dist<closest) closest=dist
+            if(nx===apple.x && ny===apple.y) scoreVal+=brain.appleEatenBonus + (apple.type==="yellow"?40:0)
+        }
+        let space=floodFill(nx,ny,snakeRef)
+        scoreVal+=space*brain.spaceMultiplier
+        if(space<snakeRef.length+5) scoreVal-=1000
+        scoreVal+=closest*brain.appleDistanceMultiplier
+        if(nx===0||ny===0||nx===gridSize-1||ny===gridSize-1) scoreVal-=snakeRef.length
+
+        if(scoreVal>bestScore){ bestScore=scoreVal; bestMove=move }
+    }
+    return bestMove||"UP"
+}
+
+// --- RL Snake constructor ---
+function createRandomBrain(){
+    return {
+        spaceMultiplier:Math.random()*3+1,
+        appleDistanceMultiplier:-Math.random()*5,
+        appleEatenBonus:Math.random()*100+50
+    }
+}
+
+function createSnake(){
+    return {
+        positions:[{x:0,y:0},{x:1,y:0}],
+        brain:createRandomBrain(),
+        score:0,
+        alive:true
+    }
+}
+
+// --- Game Loop ---
+function tick(){
+    if(paused) return
+    if(rlMode){
+        let snakeObj=population[currentSnakeIndex]
+        if(!snakeObj.alive) return
+
+        let move=chooseMoveAI(snakeObj.positions,snakeObj.brain)
+        let d=DIRS[move], nx=snakeObj.positions[0].x+d[0], ny=snakeObj.positions[0].y+d[1]
+
+        if(nx<0||ny<0||nx>=gridSize||ny>=gridSize||collides(nx,ny,snakeObj.positions)){
+            snakeObj.alive=false
+            snakeObj.score=snakeObj.positions.length-2
+            nextSnakeOrGen()
+            return
+        }
+
+        let ate=false
+        for(let i=0;i<apples.length;i++){
+            if(apples[i].x===nx && apples[i].y===ny){
+                snakeObj.score+=apples[i].type==="yellow"?5:1
+                apples.splice(i,1)
+                spawnApple(snakeObj.positions)
+                ate=true
+                break
+            }
+        }
+
+        snakeObj.positions.unshift({x:nx,y:ny})
+        if(!ate) snakeObj.positions.pop()
+
+        drawRL(snakeObj)
+        scoreEl.textContent=snakeObj.positions.length-2
+    } else {
+        dir=chooseMove()
+        let d=DIRS[dir], nx=snake[0].x+d[0], ny=snake[0].y+d[1]
+
+        // Save move history for learning
+        moveHistory.push({
+            head:{...snake[0]},
+            dir,
+            snake:snake.map(s=>({...s})),
+            apples:apples.map(a=>({...a})),
+            penalty:0
+        })
+        if(moveHistory.length>maxHistory) moveHistory.shift()
+
+        if(nx<0||ny<0||nx>=gridSize||ny>=gridSize||collides(nx,ny)){
+            clearInterval(lastTick)
+            overlayText.textContent="Game Over Score "+score
+            overlay.style.display=learn? "none":"flex"
+
+            // Update average
+            totalGames++
+            totalScore+=score
+            avgScore=(totalScore/totalGames).toFixed(2)
+            avgEl.textContent = avgScore
+
+            if(learn) analyzeDeath()
+            if(learn) setTimeout(initGame,50)
+            return
+        }
+
+        let ate=false
+        for(let i=0;i<apples.length;i++){
+            if(apples[i].x===nx && apples[i].y===ny){
+                score+=apples[i].type==="yellow"?5:1
+                scoreEl.textContent=score
+                apples.splice(i,1)
+                spawnApple()
+                ate=true
+                break
+            }
+        }
+
+        snake.unshift({x:nx,y:ny})
+        if(!ate) snake.pop()
+        draw()
+    }
+}
+
+// --- RL Generation handling ---
+function nextSnakeOrGen(){
+    currentSnakeIndex++
+    if(currentSnakeIndex>=population.length){
+        generation++
+        genEl.textContent=generation
+        // Evolve population
+        evolvePopulation()
+        currentSnakeIndex=0
+    }
+    // Reset apples for next snake
+    apples=[]
+    while(apples.length<appleCount) spawnApple()
+}
+
+// --- RL evolution ---
+function evolvePopulation(){
+    // Sort by score descending
+    population.sort((a,b)=>b.score-a.score)
+    totalScore=0
+    totalGames=0
+    avgEl.textContent=0
+    let top=population.slice(0,Math.ceil(population.length/5)) // top 20%
+    let newPop=[]
+    while(newPop.length<population.length){
+        let parent=top[Math.floor(Math.random()*top.length)]
+        let childBrain={...parent.brain}
+        // small mutation
+        childBrain.spaceMultiplier*=1+(Math.random()-0.5)*0.2
+        childBrain.appleDistanceMultiplier*=1+(Math.random()-0.5)*0.2
+        childBrain.appleEatenBonus*=1+(Math.random()-0.5)*0.2
+        newPop.push({
+            positions:[{x:0,y:0},{x:1,y:0}],
+            brain:childBrain,
+            score:0,
+            alive:true
+        })
+    }
+    population=newPop
+}
+
+// --- Draw ---
+function draw(){
+    ctx.fillStyle="#111"
+    ctx.fillRect(0,0,canvas.width,canvas.height)
+    for(const a of apples){
+        ctx.fillStyle=a.type==="yellow"?"yellow":"red"
+        ctx.fillRect(a.x*box,a.y*box,box,box)
+    }
+    snake.forEach((s,i)=>{
+        ctx.fillStyle=i===0?"#0077ff":"#8fcfff"
+        ctx.fillRect(s.x*box,s.y*box,box,box)
+    })
+}
+function drawRL(snakeObj){
+    ctx.fillStyle="#111"
+    ctx.fillRect(0,0,canvas.width,canvas.height)
+    for(const a of apples){
+        ctx.fillStyle=a.type==="yellow"?"yellow":"red"
+        ctx.fillRect(a.x*box,a.y*box,box,box)
+    }
+    snakeObj.positions.forEach((s,i)=>{
+        ctx.fillStyle=i===0?"#0077ff":"#8fcfff"
+        ctx.fillRect(s.x*box,s.y*box,box,box)
+    })
+}
+
+// --- Learning ---
+function analyzeDeath(){
+    let lastN=Math.min(moveHistory.length, Math.max(10,Math.floor(snake.length/2)))
+    for(let i=moveHistory.length-lastN;i<moveHistory.length;i++){
+        if(i<0) continue
+        moveHistory[i].penalty+=50
+    }
+    spaceMultiplier*=0.98
+    appleDistanceMultiplier*=1.02
+}
+
+// --- Init ---
+function initGame(){
+    setupCanvas()
+    snake=[{x:0,y:0},{x:1,y:0}]
+    apples=[]
+    while(apples.length<appleCount) spawnApple()
+    score=0
+    scoreEl.textContent=0
+    overlay.style.display="none"
+    moveHistory=[]
+    clearInterval(lastTick)
+    intervalMs=parseInt(speedInput.value)
+    if(turbo) intervalMs=Math.floor(intervalMs/5)
+
+    if(rlMode){
+        generation=1
+        genEl.textContent=generation
+        population=[]
+        let popSize=parseInt(popInput.value)
+        for(let i=0;i<popSize;i++) population.push(createSnake())
+        currentSnakeIndex=0
+        drawRL(population[currentSnakeIndex])
+    } else {
+        draw()
+    }
+
+    lastTick=setInterval(tick,intervalMs)
+}
+
+// --- Controls ---
+document.getElementById("playAgain").onclick=initGame
+document.getElementById("pauseBtn").onclick=()=>paused=!paused
+document.getElementById("turboBtn").onclick=()=>{
+    turbo=!turbo
+    turboBtn.classList.toggle("active",turbo)
+    intervalMs=parseInt(speedInput.value)
+    if(turbo) intervalMs=Math.floor(intervalMs/5)
+    clearInterval(lastTick)
+    lastTick=setInterval(tick,intervalMs)
+}
+document.getElementById("learnBtn").onclick=()=>{
+    learn=!learn
+    learnBtn.classList.toggle("active",learn)
+}
+document.getElementById("rlBtn").onclick=()=>{
+    rlMode=!rlMode
+    rlBtn.classList.toggle("active",rlMode)
+}
+
+speedInput.oninput=()=>{
+    intervalMs=parseInt(speedInput.value)
+    if(turbo) intervalMs=Math.floor(intervalMs/5)
+    clearInterval(lastTick)
+    lastTick=setInterval(tick,intervalMs)
+}
+
+initGame()
+</script>
+</body>
+</html>
